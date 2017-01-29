@@ -152,7 +152,7 @@ static void init() {
 	texture0->setUnit(0);
 	texture0->setWrapModes(GL_REPEAT, GL_REPEAT);
 	
-	int n = 4096;
+	int n = 8192;
     sim = make_shared<ParticleSim>(n, 0.5);
 	grav << 0.0f, -9.8f, 0.0f;
 	t = 0.0f;

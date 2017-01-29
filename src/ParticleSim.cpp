@@ -43,8 +43,8 @@ ParticleSim::ParticleSim(int n, float bucketSize) :
     for (int i = 0; i < n; i++) {
         cout << i << endl;
         particles[i] = make_shared<Particle>(i, posBuf, colBuf);
-        auto a = particles[i];
-        grid->add(a);
+//        auto a = particles[i];
+//        grid->add(a);
     }
     
     // Uncomment to introduce z-axis variation

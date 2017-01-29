@@ -10,6 +10,7 @@
 #define Hash_h
 
 #include <vector>
+#include <thread>
 
 #define EPSILON 0.0081f
 // for sticky fluid: elasticity = 0.1
@@ -25,6 +26,9 @@
 
 #define BUCKET_OVERLAP 0.1f
 
+// my macbook has 4 cores, so we'll use 8 threads
+#define NUM_THREADS 8
+
 class Particle;
 struct Triplet;
 
@@ -39,11 +43,13 @@ public:
 private:
     float bucketSize;
     std::vector<std::vector<std::vector<std::vector<std::shared_ptr<Particle>>>>> buckets;
+    std::vector<std::thread> threadHandles;
     
     Triplet hash(std::shared_ptr<Particle> p);
     Triplet hashMinus(std::shared_ptr<Particle> p);
     Triplet hashPlus(std::shared_ptr<Particle> p);
     void stepBucket(Triplet t);
+    void threadStep(Triplet t);
 };
 
 #endif /* Hash_h */

@@ -23,6 +23,8 @@ typedef struct Triplet {
 Hash::Hash(float bucketSize) {
     this->bucketSize = bucketSize;
     buckets = vector<vector<vector<vector<shared_ptr<Particle>>>>>();
+    
+    threadHandles = vector<thread>(NUM_THREADS);
 }
 
 Hash::~Hash() {
@@ -154,13 +156,55 @@ void Hash::stepBucket(Triplet t) {
     }
 }
 
+void Hash::threadStep(Triplet t) {
+    if (buckets.at(t.a).at(t.b).size() == 0) {
+        return;
+    }
+    
+    int size = buckets.at(t.a).at(t.b).at(t.c).size();
+    for (int i = 0; i < size; i++) {
+        if (size == 0) {
+            // this shouldn't happen but if it does then we just want to bail
+            assert(0);
+        }
+        
+        auto a = buckets.at(t.a).at(t.b).at(t.c).at(i);
+        for (int j = i + 1; j < size; j++) {
+            auto b = buckets.at(t.a).at(t.b).at(t.c).at(j);
+            // check if particles are close
+            if (a->distance2(b) < EPSILON) {
+                Vector3f dir = (a->x - b->x).normalized(); // direction from b to a
+                if ((a->v - b->v).dot(dir) < 0) {
+                    // particles are approaching each other
+                    a->v += dir * VISCOSITY_GAIN;
+                    b->v -= dir * VISCOSITY_GAIN;
+                }
+            }
+        }
+    }
+}
+
 void Hash::step() {
+    int threadId = 0;
     for (int i = 0; i < buckets.size(); i++) {
         if (buckets.at(i).size() > 0) {
             int size = buckets.at(i).size();
             for (int j = 0; j < size; j++) {
-                stepBucket({i, j});
+                threadHandles[threadId] = thread( [this, i, j]
+                                          { threadStep({i, j}); } );
+                threadId++;
+                if (threadId == NUM_THREADS) {
+                    for (int k = 0; k < NUM_THREADS; k++) {
+                        threadHandles[k].join();
+                    }
+                    threadId = 0;
+                }
             }
+        }
+    }
+    if (threadId > 0) {
+        for (int i = threadId - 1; i >= 0; i--) {
+            threadHandles[i].join();
         }
     }
 }
