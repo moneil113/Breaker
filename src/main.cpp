@@ -20,6 +20,8 @@
 #include "Texture.h"
 #include "Shape.h"
 
+#include "Util.h"
+
 using namespace std;
 using namespace Eigen;
 
@@ -152,8 +154,7 @@ static void init() {
 	texture0->setUnit(0);
 	texture0->setWrapModes(GL_REPEAT, GL_REPEAT);
 	
-	int n = 8192;
-    sim = make_shared<ParticleSim>(n, 0.5);
+    sim = make_shared<ParticleSim>(NUM_PARTICLES, 0.5);
 	grav << 0.0f, -9.8f, 0.0f;
 	t = 0.0f;
 	dt = 0.01f;
@@ -234,15 +235,7 @@ static void render() {
         if (keyToggles[(unsigned) '3']) {
             box3->draw(flatProg);
         }
-        
-        // Draw the boundaries between particle buckets
-        /*if (keyToggles[(unsigned) 'c']) {
-            MV->pushMatrix();
-            MV->translate(sim->mid() + Vector3f(3, 2, 0));
-            glUniformMatrix4fv(flatProg->getUniform("MV"), 1, GL_FALSE, MV->topMatrix().data());
-            cross->draw(flatProg);
-            MV->popMatrix();
-        }*/
+
         flatProg->unbind();
         MV->popMatrix();
     }
@@ -264,6 +257,10 @@ static void render() {
 	
 	MV->popMatrix();
 	P->popMatrix();
+    
+#ifdef DEBUG
+    keyToggles[(unsigned) ' '] = false;
+#endif
 	
 	GLSL::checkError(GET_FILE_LINE);
 }
@@ -329,7 +326,7 @@ int main(int argc, char **argv) {
 	// Loop until the user closes the window.
 	while(!glfwWindowShouldClose(window)) {
         newTime = glfwGetTime();
-        cout << "fps: " << 1 / (newTime - oldTime) << endl;
+//        cout << "fps: " << 1 / (newTime - oldTime) << endl;
         oldTime = newTime;
 		// Step particles.
 		stepParticles();

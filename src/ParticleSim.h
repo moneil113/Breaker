@@ -11,6 +11,7 @@
 
 #include <memory>
 #include <vector>
+#include <thread>
 
 #define GLEW_STATIC
 #include <GL/glew.h>
@@ -42,6 +43,8 @@ private:
     void emptyBuckets();
     void spawnParticles();
     
+    void threadStepParticles(int threadId, float dt, Eigen::Vector3f g, const bool *keyToggles);
+    
     Eigen::Vector3f lerp(float t);
     void assignColor(std::shared_ptr<Particle> p);
     
@@ -63,6 +66,8 @@ private:
     
     Eigen::Vector3f slowColor;
     Eigen::Vector3f fastColor;
+    
+    std::vector<std::thread> threadHandles;
 };
 
 #endif /* ParticleSim_h */

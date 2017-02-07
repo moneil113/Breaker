@@ -9,7 +9,10 @@
 #include "Hash.h"
 #include "Particle.h"
 
+#include "Util.h"
+
 #include <iostream>
+#include <sstream>
 
 using namespace std;
 using namespace Eigen;
@@ -20,9 +23,12 @@ typedef struct Triplet {
     int c;
 } Triplet;
 
+int addCount = 0;
+int bucketCount = 0;
+
 Hash::Hash(float bucketSize) {
     this->bucketSize = bucketSize;
-    buckets = vector<vector<vector<vector<shared_ptr<Particle>>>>>();
+    buckets = vector<vector<vector<Bucket_t>>>();
     
     threadHandles = vector<thread>(NUM_THREADS);
 }
@@ -65,6 +71,11 @@ void Hash::add(std::shared_ptr<Particle> p) {
     
     buckets.at(result.a).at(result.b).at(result.c).push_back(p);
     
+    if (buckets.at(result.a).at(result.b).at(result.c).size() == 1) {
+        groupedBuckets.push_back(&buckets.at(result.a).at(result.b).at(result.c));
+        addCount++;
+    }
+    
     // Check if particle belongs in bucket to the left or below
     if (resultMinus.a != result.a) {
         if (buckets.size() <= resultMinus.a) {
@@ -77,6 +88,11 @@ void Hash::add(std::shared_ptr<Particle> p) {
             buckets.at(resultMinus.a).at(result.b).resize(result.c + 1);
         }
         buckets.at(resultMinus.a).at(result.b).at(result.c).push_back(p);
+        
+        if (buckets.at(resultMinus.a).at(result.b).at(result.c).size() == 1) {
+            groupedBuckets.push_back(&buckets.at(resultMinus.a).at(result.b).at(result.c));
+            addCount++;
+        }
     }
     if (resultMinus.b != result.b) {
         if (buckets.size() <= result.a) {
@@ -89,6 +105,11 @@ void Hash::add(std::shared_ptr<Particle> p) {
             buckets.at(result.a).at(resultMinus.b).resize(result.c + 1);
         }
         buckets.at(result.a).at(resultMinus.b).at(result.c).push_back(p);
+        
+        if (buckets.at(result.a).at(resultMinus.b).at(result.c).size() == 1) {
+            groupedBuckets.push_back(&buckets.at(result.a).at(resultMinus.b).at(result.c));
+            addCount++;
+        }
     }
     
     // Check if particle belongs in bucket to the right or above
@@ -103,6 +124,11 @@ void Hash::add(std::shared_ptr<Particle> p) {
             buckets.at(resultPlus.a).at(result.b).resize(result.c + 1);
         }
         buckets.at(resultPlus.a).at(result.b).at(result.c).push_back(p);
+        
+        if (buckets.at(resultPlus.a).at(result.b).at(result.c).size() == 1) {
+            groupedBuckets.push_back(&buckets.at(resultPlus.a).at(result.b).at(result.c));
+            addCount++;
+        }
     }
     if (resultPlus.b != result.b) {
         if (buckets.size() <= result.a) {
@@ -115,6 +141,11 @@ void Hash::add(std::shared_ptr<Particle> p) {
             buckets.at(result.a).at(resultPlus.b).resize(result.c + 1);
         }
         buckets.at(result.a).at(resultPlus.b).at(result.c).push_back(p);
+        
+        if (buckets.at(result.a).at(resultPlus.b).at(result.c).size() == 1) {
+            groupedBuckets.push_back(&buckets.at(result.a).at(resultPlus.b).at(result.c));
+            addCount++;
+        }
     }
 }
 
@@ -127,84 +158,75 @@ void Hash::clear() {
             }
         }
     }
+    
+    groupedBuckets.clear();
 }
 
-void Hash::stepBucket(Triplet t) {
-    if (buckets.at(t.a).at(t.b).size() == 0) {
-        return;
-    }
-    
-    int size = buckets.at(t.a).at(t.b).at(t.c).size();
-    for (int i = 0; i < size; i++) {
-        if (size == 0) {
-            // this shouldn't happen but if it does then we just want to bail
-            assert(0);
-        }
-        auto a = buckets.at(t.a).at(t.b).at(t.c).at(i);
-        for (int j = i + 1; j < size; j++) {
-            auto b = buckets.at(t.a).at(t.b).at(t.c).at(j);
-            // check if particles are close
-            if (a->distance2(b) < EPSILON) {
-                Vector3f dir = (a->x - b->x).normalized(); // direction from b to a
-                if ((a->v - b->v).dot(dir) < 0) {
-                    // particles are approaching each other
-                    a->v += dir * VISCOSITY_GAIN;
-                    b->v -= dir * VISCOSITY_GAIN;
+void Hash::threadStep(int threadId) {
+    int size = groupedBuckets.size();
+    int span = (size + NUM_THREADS - 1) / NUM_THREADS;
+    int start = threadId * span;
+    int end = start + span;
+
+    for (int k = start; k < end && k < size; k++) {
+        Bucket_t *bucket = groupedBuckets.at(k);
+        for (int i = 0; i < bucket->size() - 1; i++) {
+            shared_ptr<Particle> a = bucket->at(i);
+            for (int j = i + 1; j < bucket->size(); j++) {
+                shared_ptr<Particle> b = bucket->at(j);
+                // check if particles are close
+                if (a->distance2(b) < EPSILON) {
+                    Vector3f dir = (a->x - b->x).normalized(); // direction from b to a
+                    if ((a->v - b->v).dot(dir) < 0) {
+                        stringstream d2;
+                        // particles are approaching each other
+                        a->v += dir * VISCOSITY_GAIN;
+                        b->v -= dir * VISCOSITY_GAIN;
+                    }
                 }
             }
         }
     }
 }
 
-void Hash::threadStep(Triplet t) {
-    if (buckets.at(t.a).at(t.b).size() == 0) {
-        return;
-    }
+void Hash::colorBuckets() {
+    Vector3f colors[] = {
+        Vector3f(1, 1, 1),
+        Vector3f(0, 0, 0)
+    };
     
-    int size = buckets.at(t.a).at(t.b).at(t.c).size();
-    for (int i = 0; i < size; i++) {
-        if (size == 0) {
-            // this shouldn't happen but if it does then we just want to bail
-            assert(0);
+    for (int i = 0; i < groupedBuckets.size(); i++) {
+        Triplet t = hash(groupedBuckets.at(i)->at(0));
+        
+        int colorIndex = (t.a % 2);
+        if (t.b % 2) {
+            colorIndex = !colorIndex;
         }
         
-        auto a = buckets.at(t.a).at(t.b).at(t.c).at(i);
-        for (int j = i + 1; j < size; j++) {
-            auto b = buckets.at(t.a).at(t.b).at(t.c).at(j);
-            // check if particles are close
-            if (a->distance2(b) < EPSILON) {
-                Vector3f dir = (a->x - b->x).normalized(); // direction from b to a
-                if ((a->v - b->v).dot(dir) < 0) {
-                    // particles are approaching each other
-                    a->v += dir * VISCOSITY_GAIN;
-                    b->v -= dir * VISCOSITY_GAIN;
-                }
-            }
+        for (int j = 0; j < groupedBuckets.at(i)->size(); j++) {
+            groupedBuckets.at(i)->at(j)->color = colors[colorIndex];
         }
     }
 }
 
 void Hash::step() {
-    int threadId = 0;
-    for (int i = 0; i < buckets.size(); i++) {
-        if (buckets.at(i).size() > 0) {
-            int size = buckets.at(i).size();
-            for (int j = 0; j < size; j++) {
-                threadHandles[threadId] = thread( [this, i, j]
-                                          { threadStep({i, j}); } );
-                threadId++;
-                if (threadId == NUM_THREADS) {
-                    for (int k = 0; k < NUM_THREADS; k++) {
-                        threadHandles[k].join();
-                    }
-                    threadId = 0;
-                }
-            }
-        }
+//    colorBuckets();
+    
+    
+    // TODO this implementation doesn't synchronize threads when it deals with
+    // particles in more than one bucket
+    // this situation is relatively rare (I think), so we aren't going to worry
+    // about it right now
+    for (int threadId = 0; threadId < NUM_THREADS; threadId++) {
+        threadHandles[threadId] = thread( [this, threadId]
+                                            { threadStep(threadId); }
+                                         );
     }
-    if (threadId > 0) {
-        for (int i = threadId - 1; i >= 0; i--) {
-            threadHandles[i].join();
-        }
+    
+    for (int threadId = 0; threadId < NUM_THREADS; threadId++) {
+        threadHandles[threadId].join();
     }
+    
+    addCount = 0;
 }
+

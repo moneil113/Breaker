@@ -11,6 +11,8 @@
 #include "Program.h"
 #include "Hash.h"
 
+#include "Util.h"
+
 #include <iostream>
 using namespace std;
 using namespace Eigen;
@@ -40,12 +42,24 @@ ParticleSim::ParticleSim(int n, float bucketSize) :
 //    slowColor << 0.47f, 0.24f, 0.51f;
 //    fastColor << 0.81f, 0.43f, 0.75f;
 
+    // TODO this is another target for parallelization
     for (int i = 0; i < n; i++) {
         cout << i << endl;
         particles[i] = make_shared<Particle>(i, posBuf, colBuf);
 //        auto a = particles[i];
 //        grid->add(a);
     }
+    /*particles[0] = make_shared<Particle>(0, posBuf, colBuf);
+    particles[0]->x = Vector3f(1, 1, 0);
+    particles[0]->v = Vector3f(1, 0, 0);
+    particles[0]->color = Vector3f(1, 1, 1);
+    
+    particles[1] = make_shared<Particle>(1, posBuf, colBuf);
+    particles[1]->x = Vector3f(1.5, 1, 0);
+    particles[1]->v = Vector3f(-1, 0, 0);
+    particles[1]->color = Vector3f(0, 0, 0);
+    
+    activeParticles = 2;*/
     
     // Uncomment to introduce z-axis variation
 //    particles[0]->x << 0.0f, 0.0f, 0.001f;
@@ -59,6 +73,9 @@ ParticleSim::ParticleSim(int n, float bucketSize) :
     glGenBuffers(1, &colBufID);
     glBindBuffer(GL_ARRAY_BUFFER, colBufID);
     glBufferData(GL_ARRAY_BUFFER, colBuf.size()*sizeof(float), &colBuf[0], GL_STATIC_DRAW);
+    
+    // Create thread handles for threading later on
+    threadHandles = vector<thread>(NUM_THREADS);
 }
 
 ParticleSim::~ParticleSim() {
@@ -88,10 +105,19 @@ void ParticleSim::stepParticles(float t, float dt, Eigen::Vector3f &g, const boo
         spawnParticles();
     }
 
-    grid->step();
-    grid->clear();
+    // TODO this is the next target for parallelization
+    
+    
 
+//    for (int threadId = 0; threadId < NUM_THREADS; threadId++) {
+//        Vector3f newG = g;
+//        threadHandles[threadId] = thread( [this, threadId, dt, newG, keyToggles]
+//                                            { threadStepParticles(threadId, dt, newG, keyToggles); }
+//                                         );
+//    }
+    
     for (int i = 0; i < activeParticles; i++) {
+//        threadHandles[threadId].join();
         auto a = particles[i];
         Vector3f f = g * m;
         a->v += (dt/m) * f;
@@ -120,7 +146,7 @@ void ParticleSim::stepParticles(float t, float dt, Eigen::Vector3f &g, const boo
                     a->x.y() = randomFloat(0.0f, 0.01f);
                     a->v.y() = abs(a->v.y()) * ELASTICITY;
                 }
-
+                
                 if (a->x.x() < 0) {
                     a->x.x() = randomFloat(0.0f, 0.01f);
                     a->v.x() = abs(a->v.x()) * ELASTICITY;
@@ -162,6 +188,92 @@ void ParticleSim::stepParticles(float t, float dt, Eigen::Vector3f &g, const boo
         }
         assignColor(a);
         grid->add(a);
+    }
+    
+//    for (int i = 0; i < activeParticles; i++) {
+//        grid->add(particles[i]);
+//    }
+    
+    grid->step();
+    grid->clear();
+}
+
+void ParticleSim::threadStepParticles(int threadId, float dt, Eigen::Vector3f g, const bool *keyToggles) {
+    int span = (activeParticles + NUM_THREADS - 1) / NUM_THREADS;
+    int start = threadId * span;
+    int end = start + span;
+    
+    for (int i = start; i < end && i < activeParticles; i++) {
+        auto a = particles[i];
+        Vector3f f = g * m;
+        a->v += (dt/m) * f;
+        a->x += dt * a->v;
+        
+        // Particle interactions with boundaries
+        if (keyToggles[(unsigned) '1']) {
+            if (keyToggles[(unsigned) '2']) {
+                // bunch everything on the right hand side
+                if (a->x.y() < 0) {
+                    a->x.y() = randomFloat(0.0f, 0.01f);
+                    a->v.y() = abs(a->v.y()) * ELASTICITY;
+                }
+                
+                if (a->x.x() < 4) {
+                    a->x.x() = randomFloat(4.0f, 4.01f);
+                    a->v.x() = abs(a->v.x()) * ELASTICITY;
+                }
+                else if (a->x.x() > 6) {
+                    a->x.x() = randomFloat(5.99f, 6.0f);
+                    a->v.x() = abs(a->v.x()) * -ELASTICITY;
+                }
+            }
+            else {
+                if (a->x.y() < 0) {
+                    a->x.y() = randomFloat(0.0f, 0.01f);
+                    a->v.y() = abs(a->v.y()) * ELASTICITY;
+                }
+                
+                if (a->x.x() < 0) {
+                    a->x.x() = randomFloat(0.0f, 0.01f);
+                    a->v.x() = abs(a->v.x()) * ELASTICITY;
+                }
+                else if (a->x.x() > 6) {
+                    a->x.x() = randomFloat(5.99f, 6.0f);
+                    a->v.x() = abs(a->v.x()) * -ELASTICITY;
+                }
+            }
+        }
+        else if (keyToggles[(unsigned) '3']) {
+            if (a->x.y() < 0) {
+                a->x.y() = randomFloat(0.0f, 0.01f);
+                a->v.y() = abs(a->v.y()) * ELASTICITY;
+            }
+            else if (a->x.y() > 2) {
+                a->x.y() = randomFloat(1.99f, 2.0f);
+                a->v.y() = abs(a->v.y()) * -ELASTICITY;
+            }
+            
+            if (a->x.x() < 0) {
+                a->x.x() = randomFloat(0.0f, 0.01f);
+                a->v.x() = abs(a->v.x()) * ELASTICITY;
+            }
+            else if (a->x.x() > 6) {
+                a->x.x() = randomFloat(5.99f, 6.0f);
+                a->v.x() = abs(a->v.x()) * -ELASTICITY;
+            }
+        }
+        
+        // Uncomment to impose boundaries in the z-axis
+        if (a->x.z() < 0) {
+            a->x.z() = randomFloat(0.0f, 0.01f);
+            a->v.z() = abs(a->v.z()) * ELASTICITY;
+        }
+        else if (a->x.z() > 1) {
+            a->x.z() = randomFloat(0.49f, 0.5f);
+            a->v.z() = abs(a->v.z()) * -ELASTICITY;
+        }
+        assignColor(a);
+//        grid->add(a);
     }
 }
 

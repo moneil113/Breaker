@@ -26,11 +26,11 @@
 
 #define BUCKET_OVERLAP 0.1f
 
-// my macbook has 4 cores, so we'll use 8 threads
-#define NUM_THREADS 8
 
 class Particle;
 struct Triplet;
+
+typedef std::vector<std::shared_ptr<Particle>> Bucket_t;
 
 class Hash {
 public:
@@ -42,14 +42,20 @@ public:
     
 private:
     float bucketSize;
-    std::vector<std::vector<std::vector<std::vector<std::shared_ptr<Particle>>>>> buckets;
+    // 3D grid of buckets
+    std::vector<std::vector<std::vector<Bucket_t>>> buckets;
+    // vector of buckets
+    std::vector<Bucket_t *> groupedBuckets;
     std::vector<std::thread> threadHandles;
     
     Triplet hash(std::shared_ptr<Particle> p);
     Triplet hashMinus(std::shared_ptr<Particle> p);
     Triplet hashPlus(std::shared_ptr<Particle> p);
     void stepBucket(Triplet t);
-    void threadStep(Triplet t);
+    void threadStep(int threadId);
+    
+    // testing function to color particles based on buckets
+    void colorBuckets();
 };
 
 #endif /* Hash_h */
