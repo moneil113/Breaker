@@ -147,7 +147,7 @@ static void init() {
 	prog->addUniform("texture0");
 	
 	camera = make_shared<Camera>();
-	camera->setInitDistance(9.0f);
+	camera->setInitDistance(12.0f);
 	
 	texture0 = make_shared<Texture>();
 	texture0->setFilename(RESOURCE_DIR + "alpha.jpg");
@@ -185,11 +185,13 @@ static void init() {
 	
 	GLSL::checkError(GET_FILE_LINE);
     
+#ifdef BAKE
     // Initalize a temp directory for baked data if it doesn't exist
     struct stat st;
     if (stat("/tmp/breaker", &st) != 0) {
         mkdir("/tmp/breaker/", 0777);
     }
+#endif
 }
 
 // This function is called every frame to draw the scene.
@@ -220,13 +222,13 @@ static void render() {
 	P->pushMatrix();
 	camera->applyProjectionMatrix(P);
 	MV->pushMatrix();
-    MV->rotate(-rotation, Vector3f(0, 0, 1));
+//    MV->rotate(-rotation, Vector3f(0, 0, 1));
 	camera->applyViewMatrix(MV);
 	
     // Draw shapes
     if (keyToggles[(unsigned) '1'] || keyToggles[(unsigned) '3']) {
         MV->pushMatrix();
-        MV->translate(Vector3f(3, 0.0f, 0));
+        MV->translate(Vector3f(3, 0.0f, 3));
         flatProg->bind();
         glUniformMatrix4fv(flatProg->getUniform("P"), 1, GL_FALSE, P->topMatrix().data());
         glUniformMatrix4fv(flatProg->getUniform("MV"), 1, GL_FALSE, MV->topMatrix().data());

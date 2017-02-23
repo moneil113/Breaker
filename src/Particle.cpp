@@ -15,7 +15,6 @@ Particle::Particle(int index, vector<float> &posBuf, vector<float> &colBuf) :
     color(&colBuf[3*index])
 
 {
-//    color << 0.43f, 0.65f, 1.0f;
 }
 
 Particle::~Particle() {
@@ -28,21 +27,22 @@ float randFloat(float l, float h) {
 
 void Particle::rebirth(int spawnType) {
     float t = randFloat(0.0f, 1.0f);
+    float z = randFloat(2.5f, 3.5f);
     
     if (spawnType == 0) {
-        x << 5.0f + t, 0.0f + t, 0.0f;
+        x << 5.0f + t, 0.0f + t, z;
         v << -7.0f, 7.0f, 0.0f;
     }
     else if (spawnType == 1) {
-        x << 6.0f, 0.0f + t, 0.0f;
+        x << 6.0f, 0.0f + t, z;
         v << -10.0f, 0.0f, 0.0f;
     }
     else if (spawnType == 2) {
-        x << 2.5f + t, 4.0f, 0.0f;
+        x << 2.5f + t, 4.0f, z;
         v << 0.0f, -10.0f, 0.0f;
     }
     else {
-        x << 2.5f + t, 0.0f, 0.0f;
+        x << 2.5f + t, 0.0f, z;
         v << 0.0f, 10.0f, 0.0f;
     }
 }

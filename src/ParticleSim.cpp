@@ -47,24 +47,8 @@ ParticleSim::ParticleSim(int n, float bucketSize) :
     for (int i = 0; i < n; i++) {
         cout << i << endl;
         particles[i] = make_shared<Particle>(i, posBuf, colBuf);
-//        auto a = particles[i];
-//        grid->add(a);
     }
-    /*particles[0] = make_shared<Particle>(0, posBuf, colBuf);
-    particles[0]->x = Vector3f(1, 1, 0);
-    particles[0]->v = Vector3f(1, 0, 0);
-    particles[0]->color = Vector3f(1, 1, 1);
     
-    particles[1] = make_shared<Particle>(1, posBuf, colBuf);
-    particles[1]->x = Vector3f(1.5, 1, 0);
-    particles[1]->v = Vector3f(-1, 0, 0);
-    particles[1]->color = Vector3f(0, 0, 0);
-    
-    activeParticles = 2;*/
-    
-    // Uncomment to introduce z-axis variation
-//    particles[0]->x << 0.0f, 0.0f, 0.001f;
-
     // Bind position buffer
     glGenBuffers(1, &posBufID);
     glBindBuffer(GL_ARRAY_BUFFER, posBufID);
@@ -187,17 +171,13 @@ void ParticleSim::stepParticles(float t, float dt, Eigen::Vector3f &g, const boo
             a->x.z() = randomFloat(0.0f, 0.01f);
             a->v.z() = abs(a->v.z()) * ELASTICITY;
         }
-        else if (a->x.z() > 1) {
-            a->x.z() = randomFloat(0.49f, 0.5f);
+        else if (a->x.z() > 6) {
+            a->x.z() = randomFloat(5.99f, 6.0f);
             a->v.z() = abs(a->v.z()) * -ELASTICITY;
         }
         assignColor(a);
         grid->add(a);
     }
-    
-//    for (int i = 0; i < activeParticles; i++) {
-//        grid->add(particles[i]);
-//    }
     
     grid->step();
     grid->clear();
@@ -275,12 +255,11 @@ void ParticleSim::threadStepParticles(int threadId, float dt, Eigen::Vector3f g,
             a->x.z() = randomFloat(0.0f, 0.01f);
             a->v.z() = abs(a->v.z()) * ELASTICITY;
         }
-        else if (a->x.z() > 1) {
-            a->x.z() = randomFloat(0.49f, 0.5f);
+        else if (a->x.z() > 6) {
+            a->x.z() = randomFloat(5.99f, 6.0f);
             a->v.z() = abs(a->v.z()) * -ELASTICITY;
         }
         assignColor(a);
-//        grid->add(a);
     }
 }
 
@@ -309,7 +288,7 @@ void ParticleSim::bakeFrame() {
     stringstream s;
     s << "/tmp/breaker/breakerSim_" << frame << ".brk";
     bakedFile.open(s.str(), ios::out | ios::binary);
-//    bakedFile << activeParticles << endl;
+
     bakedFile.write((const char *)&activeParticles, sizeof(int));
     for (int i = 0; i < activeParticles; i++) {
         auto a = particles[i];
@@ -317,8 +296,6 @@ void ParticleSim::bakeFrame() {
         float v = a->v.norm();
         bakedFile.write((const char *)&x, sizeof(Vector3f));
         bakedFile.write((const char *)&v, sizeof(float));
-//        bakedFile << x.x() << " " << x.y() << " " << x.z() << " ";
-//        bakedFile << v.norm() << endl;
     }
     bakedFile.close();
 }

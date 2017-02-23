@@ -30,6 +30,8 @@
 class Particle;
 struct Triplet;
 
+struct BucketTriple;
+
 typedef std::vector<std::shared_ptr<Particle>> Bucket_t;
 
 class Hash {
@@ -47,6 +49,7 @@ private:
     // vector of buckets
     std::vector<Bucket_t *> groupedBuckets;
     std::vector<std::thread> threadHandles;
+    std::vector<int> badBuckets;
     
     Triplet hash(std::shared_ptr<Particle> p);
     Triplet hashMinus(std::shared_ptr<Particle> p);
@@ -56,6 +59,8 @@ private:
     
     // testing function to color particles based on buckets
     void colorBuckets();
+    
+    std::vector<BucketTriple> addedBuckets;
 };
 
 #endif /* Hash_h */

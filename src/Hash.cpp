@@ -54,6 +54,11 @@ Triplet Hash::hashPlus(std::shared_ptr<Particle> p) {
         (int) ((p->x.z() + bucketSize * BUCKET_OVERLAP) / bucketSize)};
 }
 
+struct BucketTriple {
+    Bucket_t *p;
+    Triplet t;
+};
+
 void Hash::add(std::shared_ptr<Particle> p) {
     Triplet result = hash(p);
 #ifndef DEBUG
@@ -68,20 +73,19 @@ void Hash::add(std::shared_ptr<Particle> p) {
         buckets.at(result.a).resize(result.b + 1);
     }
     if (buckets.at(result.a).at(result.b).size() <= result.c) {
-//        cout << result.c << " vs " << buckets.at(result.a).at(result.b).size() << endl;
-//        cout << "(" << p->x.x() << ", " << p->x.y() << ", " << p->x.z() << ")" << endl;
         buckets.at(result.a).at(result.b).resize(result.c + 1);
     }
-    
     buckets.at(result.a).at(result.b).at(result.c).push_back(p);
     
     if (buckets.at(result.a).at(result.b).at(result.c).size() == 1) {
         groupedBuckets.push_back(&buckets.at(result.a).at(result.b).at(result.c));
+        addedBuckets.push_back({&buckets.at(result.a).at(result.b).at(result.c),
+            result});
         addCount++;
     }
     
 #ifndef DEBUG
-    // Check if particle belongs in bucket to the left or below
+    // Check if particle belongs in bucket to the left
     if (resultMinus.a != result.a) {
         if (buckets.size() <= resultMinus.a) {
             buckets.resize(resultMinus.a + 1);
@@ -96,13 +100,13 @@ void Hash::add(std::shared_ptr<Particle> p) {
         
         if (buckets.at(resultMinus.a).at(result.b).at(result.c).size() == 1) {
             groupedBuckets.push_back(&buckets.at(resultMinus.a).at(result.b).at(result.c));
+            addedBuckets.push_back({&buckets.at(resultMinus.a).at(result.b).at(result.c),
+                {resultMinus.a, result.b, result.c}});
             addCount++;
         }
     }
+    // Check if particle belongs in bucket below
     if (resultMinus.b != result.b) {
-        if (buckets.size() <= result.a) {
-            buckets.resize(result.a + 1);
-        }
         if (buckets.at(result.a).size() <= resultMinus.b) {
             buckets.at(result.a).resize(resultMinus.b + 1);
         }
@@ -113,11 +117,27 @@ void Hash::add(std::shared_ptr<Particle> p) {
         
         if (buckets.at(result.a).at(resultMinus.b).at(result.c).size() == 1) {
             groupedBuckets.push_back(&buckets.at(result.a).at(resultMinus.b).at(result.c));
+            addedBuckets.push_back({&buckets.at(result.a).at(resultMinus.b).at(result.c),
+                {result.a, resultMinus.b, result.c}});
+            addCount++;
+        }
+    }
+    // Check if particle belongs in bucket behind
+    if (resultMinus.c != result.c) {
+        if (buckets.at(result.a).at(result.b).size() <= resultMinus.c) {
+            buckets.at(result.a).at(result.b).resize(result.c + 1);
+        }
+        buckets.at(result.a).at(result.b).at(resultMinus.c).push_back(p);
+        
+        if (buckets.at(result.a).at(result.b).at(resultMinus.c).size() == 1) {
+            groupedBuckets.push_back(&buckets.at(result.a).at(result.b).at(resultMinus.c));
+            addedBuckets.push_back({&buckets.at(result.a).at(result.b).at(resultMinus.c),
+                {result.a, result.b, resultMinus.c}});
             addCount++;
         }
     }
     
-    // Check if particle belongs in bucket to the right or above
+    // Check if particle belongs in bucket to the right
     if (resultPlus.a != result.a) {
         if (buckets.size() <= resultPlus.a) {
             buckets.resize(resultPlus.a + 1);
@@ -132,13 +152,13 @@ void Hash::add(std::shared_ptr<Particle> p) {
         
         if (buckets.at(resultPlus.a).at(result.b).at(result.c).size() == 1) {
             groupedBuckets.push_back(&buckets.at(resultPlus.a).at(result.b).at(result.c));
+            addedBuckets.push_back({&buckets.at(resultPlus.a).at(result.b).at(result.c),
+                {resultPlus.a, result.b, result.c}});
             addCount++;
         }
     }
+    // Check if particle belongs in bucket above
     if (resultPlus.b != result.b) {
-        if (buckets.size() <= result.a) {
-            buckets.resize(result.a + 1);
-        }
         if (buckets.at(result.a).size() <= resultPlus.b) {
             buckets.at(result.a).resize(resultPlus.b + 1);
         }
@@ -149,10 +169,40 @@ void Hash::add(std::shared_ptr<Particle> p) {
         
         if (buckets.at(result.a).at(resultPlus.b).at(result.c).size() == 1) {
             groupedBuckets.push_back(&buckets.at(result.a).at(resultPlus.b).at(result.c));
+            addedBuckets.push_back({&buckets.at(result.a).at(resultPlus.b).at(result.c),
+                {result.a, resultPlus.b, result.c}});
+            addCount++;
+        }
+    }
+    // Check if particle belongs in bucket in front
+    if (resultPlus.c != result.c) {
+        if (buckets.at(result.a).at(result.b).size() <= resultPlus.c) {
+            buckets.at(result.a).at(result.b).resize(resultPlus.c + 1);
+        }
+        buckets.at(result.a).at(result.b).at(resultPlus.c).push_back(p);
+        
+        if (buckets.at(result.a).at(result.b).at(resultPlus.c).size() == 1) {
+            groupedBuckets.push_back(&buckets.at(result.a).at(result.b).at(resultPlus.c));
+            addedBuckets.push_back({&buckets.at(result.a).at(result.b).at(resultPlus.c),
+                {result.a, result.b, resultPlus.c}});
             addCount++;
         }
     }
 #endif
+
+    // this is a bit hacky and probably super slow, but if a pointer changes,
+    // we need to update the corresponding pointer in groupedBuckets
+    for (int i = 0; i < groupedBuckets.size(); i++) {
+        auto b = groupedBuckets.at(i);
+
+        if (b->size() == 0) {
+            Triplet t = addedBuckets.at(i).t;
+            Bucket_t *p = &buckets.at(t.a).at(t.b).at(t.c);
+            
+            groupedBuckets.at(i) = p;
+            addedBuckets.at(i).p = p;
+        }
+    }
 }
 
 void Hash::clear() {
@@ -175,19 +225,23 @@ void Hash::threadStep(int threadId) {
     int end = start + span;
 
     for (int k = start; k < end && k < size; k++) {
-        Bucket_t *bucket = groupedBuckets.at(k);
-        for (int i = 0; i < bucket->size() - 1; i++) {
-            shared_ptr<Particle> a = bucket->at(i);
-            for (int j = i + 1; j < bucket->size(); j++) {
-                shared_ptr<Particle> b = bucket->at(j);
-                // check if particles are close
-                if (a->distance2(b) < EPSILON) {
-                    Vector3f dir = (a->x - b->x).normalized(); // direction from b to a
-                    if ((a->v - b->v).dot(dir) < 0) {
-                        stringstream d2;
-                        // particles are approaching each other
-                        a->v += dir * VISCOSITY_GAIN;
-                        b->v -= dir * VISCOSITY_GAIN;
+        // This isn't a great way to check this, we just want to see if this bucket
+        // is one of the ones that got messed up
+        if (find(badBuckets.begin(), badBuckets.end(), k) == badBuckets.end()) {
+            Bucket_t *bucket = groupedBuckets.at(k);
+            for (int i = 0; i < bucket->size() - 1; i++) {
+                shared_ptr<Particle> a = bucket->at(i);
+                for (int j = i + 1; j < bucket->size(); j++) {
+                    shared_ptr<Particle> b = bucket->at(j);
+                    // check if particles are close
+                    if (a->distance2(b) < EPSILON) {
+                        Vector3f dir = (a->x - b->x).normalized(); // direction from b to a
+                        if ((a->v - b->v).dot(dir) < 0) {
+                            stringstream d2;
+                            // particles are approaching each other
+                            a->v += dir * VISCOSITY_GAIN;
+                            b->v -= dir * VISCOSITY_GAIN;
+                        }
                     }
                 }
             }
@@ -208,6 +262,9 @@ void Hash::colorBuckets() {
         if (t.b % 2) {
             colorIndex = !colorIndex;
         }
+        if (t.c % 2) {
+            colorIndex = !colorIndex;
+        }
         
         for (int j = 0; j < groupedBuckets.at(i)->size(); j++) {
             groupedBuckets.at(i)->at(j)->color = colors[colorIndex];
@@ -220,6 +277,14 @@ void Hash::step() {
     colorBuckets();
 #endif
     
+    // I'm not really sure why this check is necessary, but somehow, there
+    // are some buckets that spontaneously have a ton of particles
+    for (int i = 0; i < groupedBuckets.size(); i++) {
+        auto b = groupedBuckets.at(i);
+        if (b->size() == 0 || b->size() > NUM_PARTICLES) {
+            badBuckets.push_back(i);
+        }
+    }
     
     // TODO this implementation doesn't synchronize threads when it deals with
     // particles in more than one bucket
@@ -236,5 +301,6 @@ void Hash::step() {
     }
     
     addCount = 0;
+    addedBuckets.clear();
 }
 
