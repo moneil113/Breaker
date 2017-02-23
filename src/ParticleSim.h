@@ -12,6 +12,8 @@
 #include <memory>
 #include <vector>
 #include <thread>
+#include <fstream>
+#include <iostream>
 
 #define GLEW_STATIC
 #include <GL/glew.h>
@@ -38,6 +40,7 @@ public:
     void stepParticles(float t, float dt, Eigen::Vector3f &g, const bool *keyToggles);
     void draw(std::shared_ptr<Program> prog);
     void reInit();
+    void bakeFrame();
     
 private:
     void emptyBuckets();
@@ -68,6 +71,10 @@ private:
     Eigen::Vector3f fastColor;
     
     std::vector<std::thread> threadHandles;
+    
+    // Baked simulation data
+    std::ofstream bakedFile;
+    int frame;
 };
 
 #endif /* ParticleSim_h */

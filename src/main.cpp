@@ -4,6 +4,7 @@
 #include <cmath>
 #include <iostream>
 #include <vector>
+#include <sys/stat.h>
 
 #define GLEW_STATIC
 #include <GL/glew.h>
@@ -183,6 +184,12 @@ static void init() {
     keyToggles[(unsigned) '1'] = true;
 	
 	GLSL::checkError(GET_FILE_LINE);
+    
+    // Initalize a temp directory for baked data if it doesn't exist
+    struct stat st;
+    if (stat("/tmp/breaker", &st) != 0) {
+        mkdir("/tmp/breaker/", 0777);
+    }
 }
 
 // This function is called every frame to draw the scene.
@@ -275,6 +282,10 @@ void stepParticles() {
 	}
 }
 
+void bakeFrame() {
+    sim->bakeFrame();
+}
+
 int main(int argc, char **argv) {
 	if(argc < 2) {
 		cout << "Please specify the resource directory." << endl;
@@ -326,12 +337,18 @@ int main(int argc, char **argv) {
 	// Loop until the user closes the window.
 	while(!glfwWindowShouldClose(window)) {
         newTime = glfwGetTime();
-//        cout << "fps: " << 1 / (newTime - oldTime) << endl;
+        cout << "fps: " << 1 / (newTime - oldTime) << endl;
         oldTime = newTime;
 		// Step particles.
 		stepParticles();
 		// Render scene.
 		render();
+#ifdef BAKE
+        if (keyToggles[(unsigned) ' ']) {
+            // Bake frame if we're doing that
+            bakeFrame();
+        }
+#endif
 		// Swap front and back buffers.
 		glfwSwapBuffers(window);
 		// Poll for and process events.

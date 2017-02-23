@@ -22,7 +22,8 @@ ParticleSim::ParticleSim(int n, float bucketSize) :
     activeParticles(0),
     spawnType(0),
     n(n),
-    m(1.0f)
+    m(1.0f),
+    frame(0)
 {
     posBuf.resize(3*n);
     colBuf.resize(3*n);
@@ -76,6 +77,10 @@ ParticleSim::ParticleSim(int n, float bucketSize) :
     
     // Create thread handles for threading later on
     threadHandles = vector<thread>(NUM_THREADS);
+    
+    // Create a file to save baked simulation data
+//    bakedFile.open("bakedData.brk");
+//    bakedFile << n << endl;
 }
 
 ParticleSim::~ParticleSim() {
@@ -196,6 +201,8 @@ void ParticleSim::stepParticles(float t, float dt, Eigen::Vector3f &g, const boo
     
     grid->step();
     grid->clear();
+    
+    frame++;
 }
 
 void ParticleSim::threadStepParticles(int threadId, float dt, Eigen::Vector3f g, const bool *keyToggles) {
@@ -296,6 +303,24 @@ void ParticleSim::assignColor(std::shared_ptr<Particle> p) {
     float mag = p->v.norm();
     
     p->color = lerp(mag / VELOCITY_COLOR);
+}
+
+void ParticleSim::bakeFrame() {
+    stringstream s;
+    s << "/tmp/breaker/breakerSim_" << frame << ".brk";
+    bakedFile.open(s.str(), ios::out | ios::binary);
+//    bakedFile << activeParticles << endl;
+    bakedFile.write((const char *)&activeParticles, sizeof(int));
+    for (int i = 0; i < activeParticles; i++) {
+        auto a = particles[i];
+        Vector3f x = a->x;
+        float v = a->v.norm();
+        bakedFile.write((const char *)&x, sizeof(Vector3f));
+        bakedFile.write((const char *)&v, sizeof(float));
+//        bakedFile << x.x() << " " << x.y() << " " << x.z() << " ";
+//        bakedFile << v.norm() << endl;
+    }
+    bakedFile.close();
 }
 
 void ParticleSim::draw(std::shared_ptr<Program> prog) {

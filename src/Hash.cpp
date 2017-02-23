@@ -56,8 +56,10 @@ Triplet Hash::hashPlus(std::shared_ptr<Particle> p) {
 
 void Hash::add(std::shared_ptr<Particle> p) {
     Triplet result = hash(p);
+#ifndef DEBUG
     Triplet resultMinus = hashMinus(p);
     Triplet resultPlus = hashPlus(p);
+#endif
 
     if (buckets.size() <= result.a) {
         buckets.resize(result.a + 1);
@@ -66,6 +68,8 @@ void Hash::add(std::shared_ptr<Particle> p) {
         buckets.at(result.a).resize(result.b + 1);
     }
     if (buckets.at(result.a).at(result.b).size() <= result.c) {
+//        cout << result.c << " vs " << buckets.at(result.a).at(result.b).size() << endl;
+//        cout << "(" << p->x.x() << ", " << p->x.y() << ", " << p->x.z() << ")" << endl;
         buckets.at(result.a).at(result.b).resize(result.c + 1);
     }
     
@@ -76,6 +80,7 @@ void Hash::add(std::shared_ptr<Particle> p) {
         addCount++;
     }
     
+#ifndef DEBUG
     // Check if particle belongs in bucket to the left or below
     if (resultMinus.a != result.a) {
         if (buckets.size() <= resultMinus.a) {
@@ -147,6 +152,7 @@ void Hash::add(std::shared_ptr<Particle> p) {
             addCount++;
         }
     }
+#endif
 }
 
 void Hash::clear() {
@@ -210,7 +216,9 @@ void Hash::colorBuckets() {
 }
 
 void Hash::step() {
-//    colorBuckets();
+#ifdef DEBUG
+    colorBuckets();
+#endif
     
     
     // TODO this implementation doesn't synchronize threads when it deals with

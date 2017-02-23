@@ -11,9 +11,13 @@
 #ifndef Util_h
 #define Util_h
 
-#define NUM_PARTICLES 8196
+#define NUM_PARTICLES 10000
 
 // my macbook has 4 cores, so we'll use 8 threads
 #define NUM_THREADS 8
+
+//#define DEBUG
+
+#define BAKE
 
 #endif /* Util_h */
