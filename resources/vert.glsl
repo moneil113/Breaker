@@ -9,8 +9,7 @@ attribute vec3 aCol;
 
 varying vec4 vCol;
 
-void main()
-{
+void main() {
     gl_Position = P * MV * aPos;
     vCol.rgb = aCol;
 	vCol.a = 1.0;

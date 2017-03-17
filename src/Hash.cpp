@@ -65,7 +65,7 @@ void Hash::add(std::shared_ptr<Particle> p) {
     Triplet resultMinus = hashMinus(p);
     Triplet resultPlus = hashPlus(p);
 #endif
-
+    
     if (buckets.size() <= result.a) {
         buckets.resize(result.a + 1);
     }
@@ -225,23 +225,27 @@ void Hash::threadStep(int threadId) {
     int end = start + span;
 
     for (int k = start; k < end && k < size; k++) {
+        Bucket_t *bucket = groupedBuckets.at(k);
+        
         // This isn't a great way to check this, we just want to see if this bucket
-        // is one of the ones that got messed up
-        if (find(badBuckets.begin(), badBuckets.end(), k) == badBuckets.end()) {
-            Bucket_t *bucket = groupedBuckets.at(k);
-            for (int i = 0; i < bucket->size() - 1; i++) {
-                shared_ptr<Particle> a = bucket->at(i);
-                for (int j = i + 1; j < bucket->size(); j++) {
-                    shared_ptr<Particle> b = bucket->at(j);
-                    // check if particles are close
-                    if (a->distance2(b) < EPSILON) {
-                        Vector3f dir = (a->x - b->x).normalized(); // direction from b to a
-                        if ((a->v - b->v).dot(dir) < 0) {
-                            stringstream d2;
-                            // particles are approaching each other
-                            a->v += dir * VISCOSITY_GAIN;
-                            b->v -= dir * VISCOSITY_GAIN;
-                        }
+        // is one of the ones that got messed up. If it is, don't even bother trying
+        // to recover in this frame
+        if (bucket->size() > NUM_PARTICLES) {
+            return;
+        }
+        
+        for (int i = 0; i < bucket->size() - 1; i++) {
+            shared_ptr<Particle> a = bucket->at(i);
+            for (int j = i + 1; j < bucket->size(); j++) {
+                shared_ptr<Particle> b = bucket->at(j);
+                // check if particles are close
+                if (a->distance2(b) < EPSILON) {
+                    Vector3f dir = (a->x - b->x).normalized(); // direction from b to a
+                    if ((a->v - b->v).dot(dir) < 0) {
+                        stringstream d2;
+                        // particles are approaching each other
+                        a->v += dir * VISCOSITY_GAIN;
+                        b->v -= dir * VISCOSITY_GAIN;
                     }
                 }
             }
@@ -277,17 +281,8 @@ void Hash::step() {
     colorBuckets();
 #endif
     
-    // I'm not really sure why this check is necessary, but somehow, there
-    // are some buckets that spontaneously have a ton of particles
-    for (int i = 0; i < groupedBuckets.size(); i++) {
-        auto b = groupedBuckets.at(i);
-        if (b->size() == 0 || b->size() > NUM_PARTICLES) {
-            badBuckets.push_back(i);
-        }
-    }
-    
-    // TODO this implementation doesn't synchronize threads when it deals with
-    // particles in more than one bucket
+    // TODO this implementation doesn't wory about mutiple access when it deals
+    // with particles in more than one bucket
     // this situation is relatively rare (I think), so we aren't going to worry
     // about it right now
     for (int threadId = 0; threadId < NUM_THREADS; threadId++) {
