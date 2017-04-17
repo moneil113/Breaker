@@ -47,7 +47,7 @@ ParticleSim::ParticleSim(int n, float bucketSize) :
     //      and it doesn't take long
     for (int i = 0; i < n; i++) {
         cout << i << endl;
-        particles[i] = make_shared<Particle>(i, posBuf, colBuf);
+        particles[i] = make_shared<Particle>(i, posBuf, colBuf, 1.0f);
     }
     
     // Bind position buffer
@@ -83,18 +83,13 @@ void ParticleSim::spawnParticles() {
 }
 
 void ParticleSim::stepParticles(float t, float dt, Eigen::Vector3f &g, const bool *keyToggles) {
-    // Solver is adapted from Jos Stam's paper "Stable Fluids" and Intel's "Fluid Simulation for Video Games"
-    // http://www.dgp.toronto.edu/people/stam/reality/Research/pdf/ns.pdf
-    // https://software.intel.com/en-us/articles/fluid-simulation-for-video-games-part-15
-    
     if (spawningParticles) {
         spawnParticles();
     }
     
     for (int threadId = 0; threadId < NUM_THREADS; threadId++) {
-        Vector3f newG = g;
-        threadHandles[threadId] = thread( [this, threadId, dt, newG, keyToggles]
-                                            { threadStepParticles(threadId, dt, newG, keyToggles); }
+        threadHandles[threadId] = thread( [this, threadId, dt, g, keyToggles]
+                                            { threadStepParticles(threadId); }
                                          );
     }
     
@@ -109,72 +104,48 @@ void ParticleSim::stepParticles(float t, float dt, Eigen::Vector3f &g, const boo
     grid->step();
     grid->clear();
     
+    // after accumulating all forces acting on particles, apply forces
+    for (int threadId = 0; threadId < NUM_THREADS; threadId++) {
+        threadHandles[threadId] = thread( [this, threadId, dt, g]
+                                            { applyForces(threadId, dt, g); }
+                                         );
+    }
+    for (int threadId = 0; threadId < NUM_THREADS; threadId++) {
+        threadHandles[threadId].join();
+    }
+    
     frame++;
 }
 
-void ParticleSim::threadStepParticles(int threadId, float dt, Eigen::Vector3f g, const bool *keyToggles) {
+void ParticleSim::threadStepParticles(int threadId) {
     int span = (activeParticles + NUM_THREADS - 1) / NUM_THREADS;
     int start = threadId * span;
     int end = start + span;
     
     for (int i = start; i < end && i < activeParticles; i++) {
         auto a = particles[i];
-        Vector3f f = g * m;
-        a->v += (dt/m) * f;
-        a->x += dt * a->v;
+        
+        // Velocity parallel to ground
+        Vector3f vXZ = a->v;
+        Vector3f vXY = vXZ;
+        Vector3f vYZ = vXZ;
+        vXZ.y() = 0.0f;
+        vXY.z() = 0.0f;
+        vYZ.x() = 0.0f;
         
         // Particle interactions with boundaries
-        if (keyToggles[(unsigned) '1']) {
-            if (keyToggles[(unsigned) '2']) {
-                // bunch everything on the right hand side
-                if (a->x.y() < 0) {
-                    a->x.y() = randomFloat(0.0f, 0.01f);
-                    a->v.y() = abs(a->v.y()) * ELASTICITY;
-                }
-                
-                if (a->x.x() < 4) {
-                    a->x.x() = randomFloat(4.0f, 4.01f);
-                    a->v.x() = abs(a->v.x()) * ELASTICITY;
-                }
-                else if (a->x.x() > 6) {
-                    a->x.x() = randomFloat(5.99f, 6.0f);
-                    a->v.x() = abs(a->v.x()) * -ELASTICITY;
-                }
-            }
-            else {
-                if (a->x.y() < 0) {
-                    a->x.y() = randomFloat(0.0f, 0.01f);
-                    a->v.y() = abs(a->v.y()) * ELASTICITY;
-                }
-                
-                if (a->x.x() < 0) {
-                    a->x.x() = randomFloat(0.0f, 0.01f);
-                    a->v.x() = abs(a->v.x()) * ELASTICITY;
-                }
-                else if (a->x.x() > 6) {
-                    a->x.x() = randomFloat(5.99f, 6.0f);
-                    a->v.x() = abs(a->v.x()) * -ELASTICITY;
-                }
-            }
+        if (a->x.y() < 0) {
+            a->x.y() = randomFloat(0.0f, 0.01f);
+            a->v.y() = abs(a->v.y()) * ELASTICITY;
         }
-        else if (keyToggles[(unsigned) '3']) {
-            if (a->x.y() < 0) {
-                a->x.y() = randomFloat(0.0f, 0.01f);
-                a->v.y() = abs(a->v.y()) * ELASTICITY;
-            }
-            else if (a->x.y() > 2) {
-                a->x.y() = randomFloat(1.99f, 2.0f);
-                a->v.y() = abs(a->v.y()) * -ELASTICITY;
-            }
-            
-            if (a->x.x() < 0) {
-                a->x.x() = randomFloat(0.0f, 0.01f);
-                a->v.x() = abs(a->v.x()) * ELASTICITY;
-            }
-            else if (a->x.x() > 6) {
-                a->x.x() = randomFloat(5.99f, 6.0f);
-                a->v.x() = abs(a->v.x()) * -ELASTICITY;
-            }
+        
+        if (a->x.x() < 0) {
+            a->x.x() = randomFloat(0.0f, 0.01f);
+            a->v.x() = abs(a->v.x()) * ELASTICITY;
+        }
+        else if (a->x.x() > 6) {
+            a->x.x() = randomFloat(5.99f, 6.0f);
+            a->v.x() = abs(a->v.x()) * -ELASTICITY;
         }
         
         if (a->x.z() < 0) {
@@ -186,6 +157,25 @@ void ParticleSim::threadStepParticles(int threadId, float dt, Eigen::Vector3f g,
             a->v.z() = abs(a->v.z()) * -ELASTICITY;
         }
         assignColor(a);
+    }
+}
+
+void ParticleSim::applyForces(int threadId, float dt, const Eigen::Vector3f &g) {
+    int span = (activeParticles + NUM_THREADS - 1) / NUM_THREADS;
+    int start = threadId * span;
+    int end = start + span;
+    
+    Vector3f f;
+    
+    for (int i = start; i < end && i < activeParticles; i++) {
+        auto a = particles[i];
+        f = g * a->mass();
+        a->addForce(f);
+        if (a->x.y() <= 0.09) {
+            // add friction force
+            a->addForce(0.01f * m * 9.8 * -a->v.normalized());
+        }
+        a->applyForces(dt);
     }
 }
 

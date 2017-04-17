@@ -208,7 +208,7 @@ void Hash::add(std::shared_ptr<Particle> p) {
 void Hash::clear() {
     for (int i = 0; i < buckets.size(); i++) {
         if (buckets.at(i).size() > 0) {
-            int size = buckets.at(i).size();
+            int size = (int) buckets.at(i).size();
             for (int j = 0; j < size; j++) {
                 buckets.at(i).at(j).clear();
             }
@@ -219,7 +219,7 @@ void Hash::clear() {
 }
 
 void Hash::threadStep(int threadId) {
-    int size = groupedBuckets.size();
+    int size =  (int) groupedBuckets.size();
     int span = (size + NUM_THREADS - 1) / NUM_THREADS;
     int start = threadId * span;
     int end = start + span;
@@ -227,25 +227,38 @@ void Hash::threadStep(int threadId) {
     for (int k = start; k < end && k < size; k++) {
         Bucket_t *bucket = groupedBuckets.at(k);
         
-        // This isn't a great way to check this, we just want to see if this bucket
-        // is one of the ones that got messed up. If it is, don't even bother trying
-        // to recover in this frame
+        // We want to check that this bucket didn't somehow get messed up. It's not worth
+        // it to try and recover, so we're just going to bail on this bucket this frame
         if (bucket->size() > NUM_PARTICLES) {
             return;
         }
         
-        for (int i = 0; i < bucket->size() - 1; i++) {
-            shared_ptr<Particle> a = bucket->at(i);
+        for (int i = 0; i < bucket->size(); i++) {
+            auto a = bucket->at(i);
+            
             for (int j = i + 1; j < bucket->size(); j++) {
-                shared_ptr<Particle> b = bucket->at(j);
+                auto b = bucket->at(j);
+                
+                float dist = a->distance(b);
                 // check if particles are close
-                if (a->distance2(b) < EPSILON) {
-                    Vector3f dir = (a->x - b->x).normalized(); // direction from b to a
-                    if ((a->v - b->v).dot(dir) < 0) {
-                        stringstream d2;
-                        // particles are approaching each other
-                        a->v += dir * VISCOSITY_GAIN;
-                        b->v -= dir * VISCOSITY_GAIN;
+                if (dist < RADIUS) {
+                    Vector3f dir = (b->x - a->x).normalized(); // direction from a to b
+                    // check if particles are approaching each other
+                    if ((b->v - a->v).dot(dir) < 0) {
+                        a->v -= dir * VISCOSITY_GAIN;
+                        b->v += dir * VISCOSITY_GAIN;
+                    }
+                    // if particles are separating, compute cohesion force
+                    else {
+                        // force attracting a to b
+                        Vector3f cohesion, repulsion;
+                        
+                        cohesion = (RADIUS - dist) / RADIUS * dir * COHESION;
+                        repulsion = (1 - (RADIUS - dist) / RADIUS) * -dir;
+                        a->addForce(cohesion);
+                        a->addForce(repulsion);
+                        b->addForce(-cohesion);
+                        b->addForce(-repulsion);
                     }
                 }
             }
@@ -258,10 +271,10 @@ void Hash::colorBuckets() {
         Vector3f(1, 1, 1),
         Vector3f(0, 0, 0)
     };
-    
+ 
     for (int i = 0; i < groupedBuckets.size(); i++) {
         Triplet t = hash(groupedBuckets.at(i)->at(0));
-        
+ 
         int colorIndex = (t.a % 2);
         if (t.b % 2) {
             colorIndex = !colorIndex;
@@ -281,10 +294,6 @@ void Hash::step() {
     colorBuckets();
 #endif
     
-    // TODO this implementation doesn't wory about mutiple access when it deals
-    // with particles in more than one bucket
-    // this situation is relatively rare (I think), so we aren't going to worry
-    // about it right now
     for (int threadId = 0; threadId < NUM_THREADS; threadId++) {
         threadHandles[threadId] = thread( [this, threadId]
                                             { threadStep(threadId); }

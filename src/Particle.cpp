@@ -5,16 +5,16 @@
 #include "GLSL.h"
 #include "MatrixStack.h"
 #include "Program.h"
-#include "Texture.h"
 
 using namespace std;
 using namespace Eigen;
 
-Particle::Particle(int index, vector<float> &posBuf, vector<float> &colBuf) :
+Particle::Particle(int index, vector<float> &posBuf, vector<float> &colBuf, float mass) :
 	x(&posBuf[3*index]),
     color(&colBuf[3*index])
-
 {
+    forces << 0.0f, 0.0f, 0.0f;
+    m = mass;
 }
 
 Particle::~Particle() {
@@ -42,7 +42,7 @@ void Particle::rebirth(int spawnType) {
         v << 0.0f, -10.0f, 0.0f;
     }
     else {
-        x << 2.5f + t, 0.0f, z;
+        x << 2.5f + t, 0.1f, z;
         v << 0.0f, 10.0f, 0.0f;
     }
 }
@@ -56,4 +56,20 @@ float Particle::distance2(std::shared_ptr<Particle> other) {
 
 float Particle::distance(std::shared_ptr<Particle> other) {
     return sqrtf(distance2(other));
+}
+
+void Particle::addForce(const Eigen::Vector3f &f) {
+    mutex.lock();
+    forces += f;
+    mutex.unlock();
+}
+
+void Particle::applyForces(float dt) {
+    // Find acceleration. f = ma => a  = f/m
+    Vector3f a = forces / m;
+    
+    v += a * dt;
+    x += v * dt;
+    
+    forces << 0.0f, 0.0f, 0.0f;
 }

@@ -1,7 +1,5 @@
 #version 120
 
-uniform sampler2D alphaTexture;
-
 varying vec4 vCol;
 
 void main() {

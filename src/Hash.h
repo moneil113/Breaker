@@ -12,6 +12,8 @@
 #include <vector>
 #include <thread>
 
+#include <Eigen/Dense>
+
 #define EPSILON 0.0081f
 // for sticky fluid: elasticity = 0.1
 // for medium fluid: elasticity = 0.125
@@ -23,6 +25,7 @@
 #define VISCOSITY_GAIN 0.5f
 
 #define RADIUS 0.08f
+#define COHESION 8.0f
 
 #define BUCKET_OVERLAP 0.1f
 
@@ -53,7 +56,6 @@ private:
     Triplet hash(std::shared_ptr<Particle> p);
     Triplet hashMinus(std::shared_ptr<Particle> p);
     Triplet hashPlus(std::shared_ptr<Particle> p);
-    void stepBucket(Triplet t);
     void threadStep(int threadId);
     
     // debug function to color particles based on buckets

@@ -18,7 +18,6 @@
 #include "MatrixStack.h"
 #include "ParticleSim.h"
 #include "Program.h"
-#include "Texture.h"
 
 #include "Util.h"
 
@@ -31,7 +30,6 @@ string RESOURCE_DIR = "./"; // Where the resources are loaded from
 shared_ptr<Camera> camera;
 shared_ptr<Program> prog;
 shared_ptr<Program> flatProg;
-shared_ptr<Texture> texture0;
 shared_ptr<ParticleSim> sim;
 Vector3f grav;
 float t, dt;
@@ -39,6 +37,7 @@ float rotation; // rotation in degrees
 
 bool keyToggles[256] = {false}; // only for English keyboards!
 
+// Lines describing default boundary box
 const GLfloat lineArray[] = {
     -0.05f, -0.05f, -0.05f,
     6.05f, -0.05f, -0.05f,
@@ -167,16 +166,9 @@ static void init() {
 	prog->addUniform("P");
 	prog->addUniform("MV");
 	prog->addUniform("screenSize");
-	prog->addUniform("texture0");
 
 	camera = make_shared<Camera>();
 	camera->setInitDistance(12.0f);
-
-	texture0 = make_shared<Texture>();
-	texture0->setFilename(RESOURCE_DIR + "alpha.jpg");
-	texture0->init();
-	texture0->setUnit(0);
-	texture0->setWrapModes(GL_REPEAT, GL_REPEAT);
 
     sim = make_shared<ParticleSim>(NUM_PARTICLES, 0.5);
 	grav << 0.0f, -9.8f, 0.0f;
@@ -258,12 +250,10 @@ static void render() {
 	glDepthMask(GL_TRUE);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	prog->bind();
-	texture0->bind(prog->getUniform("texture0"));
 	glUniformMatrix4fv(prog->getUniform("P"), 1, GL_FALSE, P->topMatrix().data());
 	glUniformMatrix4fv(prog->getUniform("MV"), 1, GL_FALSE, MV->topMatrix().data());
 	glUniform2f(prog->getUniform("screenSize"), (float)width, (float)height);
     sim->draw(prog);
-	texture0->unbind();
 	prog->unbind();
 	glDepthMask(GL_TRUE);
 	glDisable(GL_BLEND);

@@ -46,7 +46,8 @@ private:
     void emptyBuckets();
     void spawnParticles();
     
-    void threadStepParticles(int threadId, float dt, Eigen::Vector3f g, const bool *keyToggles);
+    void threadStepParticles(int threadId);
+    void applyForces(int threadId, float dt, const Eigen::Vector3f &g);
     
     Eigen::Vector3f lerp(float t);
     void assignColor(std::shared_ptr<Particle> p);
