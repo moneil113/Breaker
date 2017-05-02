@@ -31,9 +31,9 @@ shared_ptr<Camera> camera;
 shared_ptr<Program> prog;
 shared_ptr<Program> flatProg;
 shared_ptr<ParticleSim> sim;
-Vector3f grav;
-float t, dt;
-float rotation; // rotation in degrees
+// Vector3f grav;
+// float t, dt;
+// float rotation; // rotation in degrees
 
 bool keyToggles[256] = {false}; // only for English keyboards!
 
@@ -65,7 +65,7 @@ const GLfloat lineArray[] = {
 };
 GLuint lineBufID;
 
-void rotateGravity(float delta) {
+/*void rotateGravity(float delta) {
     Matrix3f rot;
     float deg = delta * 3.14159 / 180.0;
     rot << cos(deg), -sin(deg), 0,
@@ -73,7 +73,7 @@ void rotateGravity(float delta) {
             0, 0, 1.0;
     grav = rot * grav;
     rotation += delta;
-}
+}*/
 
 // This function is called when a GLFW error occurs
 static void error_callback(int error, const char *description) {
@@ -86,12 +86,12 @@ static void key_callback(GLFWwindow *window, int key, int scancode, int action, 
 		glfwSetWindowShouldClose(window, GL_TRUE);
 	}
 
-    if (key == GLFW_KEY_RIGHT && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-        rotateGravity(1);
-    }
-    if (key == GLFW_KEY_LEFT && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-        rotateGravity(-1);
-    }
+    // if (key == GLFW_KEY_RIGHT && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+    //     rotateGravity(1);
+    // }
+    // if (key == GLFW_KEY_LEFT && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+    //     rotateGravity(-1);
+    // }
 }
 
 // This function is called when the mouse is clicked
@@ -120,22 +120,22 @@ static void cursor_position_callback(GLFWwindow* window, double xmouse, double y
 
 static void char_callback(GLFWwindow *window, unsigned int key) {
 	keyToggles[key] = !keyToggles[key];
-    if (key == 'r') {
-        sim->reInit();
-    }
-    if (key == 's') {
-        grav << 0.0f, -9.8f, 0.0f;
-        rotation = 0;
-    }
-    if (key == '1') {
-        keyToggles[(unsigned) '3'] = false;
-        keyToggles[(unsigned) '1'] = true;
-    }
-    if (key == '3') {
-        keyToggles[(unsigned) '1'] = false;
-        keyToggles[(unsigned) '2'] = false;
-        keyToggles[(unsigned) '3'] = true;
-    }
+    // if (key == 'r') {
+    //     sim->reInit();
+    // }
+    // if (key == 's') {
+    //     grav << 0.0f, -9.8f, 0.0f;
+    //     rotation = 0;
+    // }
+    // if (key == '1') {
+    //     keyToggles[(unsigned) '3'] = false;
+    //     keyToggles[(unsigned) '1'] = true;
+    // }
+    // if (key == '3') {
+    //     keyToggles[(unsigned) '1'] = false;
+    //     keyToggles[(unsigned) '2'] = false;
+    //     keyToggles[(unsigned) '3'] = true;
+    // }
 }
 
 // If the window is resized, capture the new size and reset the viewport
@@ -162,7 +162,7 @@ static void init() {
 	prog->setVerbose(true);
 	prog->init();
 	prog->addAttribute("aPos");
-	prog->addAttribute("aCol");
+	// prog->addAttribute("aCol");
 	prog->addUniform("P");
 	prog->addUniform("MV");
 	prog->addUniform("screenSize");
@@ -170,11 +170,13 @@ static void init() {
 	camera = make_shared<Camera>();
 	camera->setInitDistance(12.0f);
 
-    sim = make_shared<ParticleSim>(NUM_PARTICLES, 0.5);
-	grav << 0.0f, -9.8f, 0.0f;
-	t = 0.0f;
-	dt = 0.01f;
-    rotation = 0;
+    cout << "in init()\n";
+    sim = make_shared<ParticleSim>(500);
+    sim->init();
+	// grav << 0.0f, -9.8f, 0.0f;
+	// t = 0.0f;
+	// dt = 0.01f;
+    // rotation = 0;
 
     flatProg = make_shared<Program>();
     flatProg->setShaderNames(RESOURCE_DIR + "flatVert.glsl", RESOURCE_DIR + "flatFrag.glsl");
@@ -270,16 +272,17 @@ static void render() {
 
 void stepParticles() {
 	if(keyToggles[(unsigned)' ']) {
-        if (keyToggles[(unsigned) 's']) {
-            rotateGravity(0.2);
-        }
-        sim->stepParticles(t, dt, grav, keyToggles);
-		t += dt;
+        // if (keyToggles[(unsigned) 's']) {
+        //     rotateGravity(0.2);
+        // }
+        // sim->stepParticles(t, dt, grav, keyToggles);
+		// t += dt;
+        sim->step();
 	}
 }
 
 void bakeFrame() {
-    sim->bakeFrame();
+    // sim->bakeFrame();
 }
 
 int main(int argc, char **argv) {

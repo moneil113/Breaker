@@ -1,70 +1,39 @@
-//
-//  ParticleSim.cpp
-//  Breaker
-//
-//  Created by Matthew O'Neil on 6/8/16.
-//
-//
-
 #include "ParticleSim.h"
-#include "Particle.h"
-#include "Program.h"
-#include "Hash.h"
-
-#include "Util.h"
-
+#include "CUDA.cuh"
+#include "GLSL.h"
 #include <iostream>
+
+#include <cuda_gl_interop.h>
+#include <cuda_runtime_api.h>
+#include <cuda_runtime.h>
+
 using namespace std;
-using namespace Eigen;
 
-ParticleSim::ParticleSim(int n, float bucketSize) :
-    spawningParticles(true),
-    activeParticles(0),
-    spawnType(0),
-    n(n),
-    m(1.0f),
-    frame(0)
+static void CheckCudaErrorAux (const char *, unsigned, const char *, cudaError_t);
+#define CUDA_CHECK_RETURN(value) CheckCudaErrorAux(__FILE__,__LINE__, #value, value)
+
+ParticleSim::ParticleSim(int size) :
+    size(size)
 {
-    posBuf.resize(3*n);
-    colBuf.resize(3*n);
-    particles = vector<shared_ptr<Particle>>(n);
-
-    grid = make_shared<Hash>(bucketSize);
-    
-    // Blue
-    slowColor << 0.11f, 0.2f, 0.67f;
-    fastColor << 0.43f, 0.65f, 1.0f;
-    
-    // Green
-//    slowColor << 0.25f, 0.47f, 0.3f;
-//    fastColor << 0.27f, 0.75f, 0.29f;
-    
-    // Purple
-//    slowColor << 0.47f, 0.24f, 0.51f;
-//    fastColor << 0.81f, 0.43f, 0.75f;
-
-    // TODO this is another target for parallelization, but this only happens once
-    //      and it doesn't take long
-    for (int i = 0; i < n; i++) {
-        cout << i << endl;
-        particles[i] = make_shared<Particle>(i, posBuf, colBuf, 1.0f);
-    }
-    
-    // Bind position buffer
-    glGenBuffers(1, &posBufID);
-    glBindBuffer(GL_ARRAY_BUFFER, posBufID);
-    glBufferData(GL_ARRAY_BUFFER, posBuf.size()*sizeof(float), &posBuf[0], GL_STATIC_DRAW);
-    
-    // Bind color buffer
-    glGenBuffers(1, &colBufID);
-    glBindBuffer(GL_ARRAY_BUFFER, colBufID);
-    glBufferData(GL_ARRAY_BUFFER, colBuf.size()*sizeof(float), &colBuf[0], GL_STATIC_DRAW);
-    
-    // Create thread handles for threading later on
-    threadHandles = vector<thread>(NUM_THREADS);
+    data = new float[3 * size];
 }
 
 ParticleSim::~ParticleSim() {
+}
+
+void ParticleSim::init() {
+std::cout << "init" << '\n';
+test();
+    createVBO(cudaGraphicsMapFlagsWriteDiscard);
+    float *dptr;
+    CUDA_CHECK_RETURN(cudaGraphicsMapResources(1, &cuda_vbo_resource, 0));
+    size_t bytes;
+    CUDA_CHECK_RETURN(cudaGraphicsResourceGetMappedPointer((void **)&dptr, &bytes, cuda_vbo_resource));
+std::cout << "init post cuda" << '\n';
+
+    initCuda(&data, &dptr, size);
+    CUDA_CHECK_RETURN(cudaGraphicsUnmapResources(1, &cuda_vbo_resource, 0));
+std::cout << "init done" << '\n';
 }
 
 float randomFloat(float l, float h) {
@@ -72,174 +41,95 @@ float randomFloat(float l, float h) {
     return (1.0f - r) * l + r * h;
 }
 
-void ParticleSim::spawnParticles() {
-    for (int i = 0; i < SPAWN_RATE && activeParticles < n; i++) {
-        particles[activeParticles]->rebirth(spawnType);
-        activeParticles++;
+void ParticleSim::test() {
+    // data = new Vector3f[size];
+
+    for (int i = 0; i < size; i++) {
+        data[3 * i] = 0.1f * (i % 10);
+        data[3 * i + 1] = 0.1f * (i / 10);
+        data[3 * i + 2] = 1.0f;
     }
-    if (activeParticles == n) {
-        spawningParticles = false;
-    }
+    cout << "allocated\n";
 }
 
-void ParticleSim::stepParticles(float t, float dt, Eigen::Vector3f &g, const bool *keyToggles) {
-    if (spawningParticles) {
-        spawnParticles();
-    }
-    
-    for (int threadId = 0; threadId < NUM_THREADS; threadId++) {
-        threadHandles[threadId] = thread( [this, threadId, dt, g, keyToggles]
-                                            { threadStepParticles(threadId); }
-                                         );
-    }
-    
-    for (int i = 0; i < activeParticles; i++) {
-        grid->add(particles[i]);
-    }
-    
-    for (int threadId = 0; threadId < NUM_THREADS; threadId++) {
-        threadHandles[threadId].join();
-    }
-    
-    grid->step();
-    grid->clear();
-    
-    // after accumulating all forces acting on particles, apply forces
-    for (int threadId = 0; threadId < NUM_THREADS; threadId++) {
-        threadHandles[threadId] = thread( [this, threadId, dt, g]
-                                            { applyForces(threadId, dt, g); }
-                                         );
-    }
-    for (int threadId = 0; threadId < NUM_THREADS; threadId++) {
-        threadHandles[threadId].join();
-    }
-    
-    frame++;
+void ParticleSim::createVBO(unsigned int vbo_res_flags) {
+std::cout << "createVBO" << '\n';
+    glGenBuffers(1, &vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+
+    // initialize buffer object
+    glBufferData(GL_ARRAY_BUFFER, 3 * sizeof(float) * size, 0, GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    // register buffer object with CUDA
+    CUDA_CHECK_RETURN(cudaGraphicsGLRegisterBuffer(&cuda_vbo_resource, vbo, vbo_res_flags));
+std::cout << "createVBO done" << '\n';
 }
 
-void ParticleSim::threadStepParticles(int threadId) {
-    int span = (activeParticles + NUM_THREADS - 1) / NUM_THREADS;
-    int start = threadId * span;
-    int end = start + span;
-    
-    for (int i = start; i < end && i < activeParticles; i++) {
-        auto a = particles[i];
-        
-        // Velocity parallel to ground
-        Vector3f vXZ = a->v;
-        Vector3f vXY = vXZ;
-        Vector3f vYZ = vXZ;
-        vXZ.y() = 0.0f;
-        vXY.z() = 0.0f;
-        vYZ.x() = 0.0f;
-        
-        // Particle interactions with boundaries
-        if (a->x.y() < 0) {
-            a->x.y() = randomFloat(0.0f, 0.01f);
-            a->v.y() = abs(a->v.y()) * ELASTICITY;
-        }
-        
-        if (a->x.x() < 0) {
-            a->x.x() = randomFloat(0.0f, 0.01f);
-            a->v.x() = abs(a->v.x()) * ELASTICITY;
-        }
-        else if (a->x.x() > 6) {
-            a->x.x() = randomFloat(5.99f, 6.0f);
-            a->v.x() = abs(a->v.x()) * -ELASTICITY;
-        }
-        
-        if (a->x.z() < 0) {
-            a->x.z() = randomFloat(0.0f, 0.01f);
-            a->v.z() = abs(a->v.z()) * ELASTICITY;
-        }
-        else if (a->x.z() > 6) {
-            a->x.z() = randomFloat(5.99f, 6.0f);
-            a->v.z() = abs(a->v.z()) * -ELASTICITY;
-        }
-        assignColor(a);
-    }
+void ParticleSim::step() {
+// std::cout << "step" << '\n';
+    float *dptr;
+    CUDA_CHECK_RETURN(cudaGraphicsMapResources(1, &cuda_vbo_resource, 0));
+    size_t bytes;
+    CUDA_CHECK_RETURN(cudaGraphicsResourceGetMappedPointer((void **)&dptr, &bytes, *(&cuda_vbo_resource)));
+// std::cout << "step post cuda" << '\n';
+    // launch kernel
+    runKernel(dptr, size);
+// std::cout << "step post kernel" << '\n';
+    CUDA_CHECK_RETURN(cudaGraphicsUnmapResources(1, &cuda_vbo_resource, 0));
+// std::cout << "step done" << '\n';
 }
 
-void ParticleSim::applyForces(int threadId, float dt, const Eigen::Vector3f &g) {
-    int span = (activeParticles + NUM_THREADS - 1) / NUM_THREADS;
-    int start = threadId * span;
-    int end = start + span;
-    
-    Vector3f f;
-    
-    for (int i = start; i < end && i < activeParticles; i++) {
-        auto a = particles[i];
-        f = g * a->mass();
-        a->addForce(f);
-        if (a->x.y() <= 0.09) {
-            // add friction force
-            a->addForce(0.01f * m * 9.8 * -a->v.normalized());
+void ParticleSim::print() {
+std::cout << "print" << '\n';
+    float *dptr;
+    CUDA_CHECK_RETURN(cudaGraphicsMapResources(1, &cuda_vbo_resource, 0));
+    size_t bytes;
+    CUDA_CHECK_RETURN(cudaGraphicsResourceGetMappedPointer((void **)&dptr, &bytes, cuda_vbo_resource));
+std::cout << "print before copy" << '\n';
+    copyDeviceToHost(data, dptr, size);
+std::cout << "print after copy" << '\n';
+
+    CUDA_CHECK_RETURN(cudaGraphicsUnmapResources(1, &cuda_vbo_resource, 0));
+    if (data) {
+        for (int i = 0; i < size; i++) {
+            // Vector3f v = data[i];
+            cout << data[3 * i] << " " << data[3 * i + 1] << " " << data[3 * i + 2] << endl;
         }
-        a->applyForces(dt);
     }
-}
-
-Vector3f ParticleSim::lerp(float t) {
-    if (t > 1) {
-        t = 1;
+    else {
+        cout << data << endl;
     }
-    else if (t < 0) {
-        t = 0;
-    }
-    
-    float r = slowColor.x() + (fastColor.x() - slowColor.x()) * t;
-    float g = slowColor.y() + (fastColor.y() - slowColor.y()) * t;
-    float b = slowColor.z() + (fastColor.z() - slowColor.z()) * t;
-    
-    return Vector3f(r, g, b);
-}
-
-void ParticleSim::assignColor(std::shared_ptr<Particle> p) {
-    float mag = p->v.norm();
-    
-    p->color = lerp(mag / VELOCITY_COLOR);
-}
-
-void ParticleSim::bakeFrame() {
-    stringstream s;
-    s << "/tmp/breaker/breakerSim_" << frame << ".brk";
-    bakedFile.open(s.str(), ios::out | ios::binary);
-
-    bakedFile.write((const char *)&activeParticles, sizeof(int));
-    for (int i = 0; i < activeParticles; i++) {
-        auto a = particles[i];
-        Vector3f x = a->x;
-        float v = a->v.norm();
-        bakedFile.write((const char *)&x, sizeof(Vector3f));
-        bakedFile.write((const char *)&v, sizeof(float));
-    }
-    bakedFile.close();
+std::cout << "print done" << '\n';
 }
 
 void ParticleSim::draw(std::shared_ptr<Program> prog) {
-    // Enable, bind, and send position array
+// std::cout << "render" << '\n';
+    // Enable and bind position array
     glEnableVertexAttribArray(prog->getAttribute("aPos"));
-    glBindBuffer(GL_ARRAY_BUFFER, posBufID);
-    glBufferData(GL_ARRAY_BUFFER, posBuf.size()*sizeof(float), &posBuf[0], GL_STATIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    // glBufferData(GL_ARRAY_BUFFER, 3 * size * sizeof(float), 0, GL_STATIC_DRAW);
     glVertexAttribPointer(prog->getAttribute("aPos"), 3, GL_FLOAT, GL_FALSE, 0, 0);
-    
-    // Enable and bind color array
-    glEnableVertexAttribArray(prog->getAttribute("aCol"));
-    glBindBuffer(GL_ARRAY_BUFFER, colBufID);
-    glBufferData(GL_ARRAY_BUFFER, colBuf.size()*sizeof(float), &colBuf[0], GL_STATIC_DRAW);
-    glVertexAttribPointer(prog->getAttribute("aCol"), 3, GL_FLOAT, GL_FALSE, 0, 0);
-    
+    // glVertexPointer(3, GL_FLOAT, 0, 0);
+
     // Draw
-    glDrawArrays(GL_POINTS, 0, activeParticles);
-    
+    // glEnableClientState(GL_VERTEX_ARRAY);
+    // glColor3f(1.0, 1.0, 1.0);
+    glDrawArrays(GL_POINTS, 0, size);
+    // glDisableClientState(GL_VERTEX_ARRAY);
+
     // Disable and unbind
     glDisableVertexAttribArray(prog->getAttribute("aPos"));
-    glDisableVertexAttribArray(prog->getAttribute("aCol"));
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
-void ParticleSim::reInit() {
-    spawningParticles = true;
-    activeParticles = 0;
-    spawnType = (spawnType + 1) % NUM_SPAWNS;
+/**
+ * Check the return value of the CUDA runtime API call and exit
+ * the application if the call has failed.
+ */
+static void CheckCudaErrorAux (const char *file, unsigned line, const char *statement, cudaError_t err) {
+	if (err == cudaSuccess)
+		return;
+	std::cerr << statement<<" returned " << cudaGetErrorString(err) << "("<<err<< ") at "<<file<<":"<<line << std::endl;
+	exit (1);
 }

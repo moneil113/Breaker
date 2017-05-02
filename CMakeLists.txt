@@ -5,14 +5,18 @@ project(Breaker)
 
 # Use glob to get the list of all source files.
 file(GLOB_RECURSE SOURCES "src/*.cpp")
+file(GLOB_RECURSE CUDA_SOURCES "src/*.cu")
 
 # We don't really need to include header and resource files to build, but it's
 # nice to have them show up in IDEs.
 file(GLOB_RECURSE HEADERS "src/*.h")
 file(GLOB_RECURSE GLSL "resources/*.glsl")
 
+# Find CUDA
+find_package( Cuda )
+
 # Set the executable.
-add_executable(${CMAKE_PROJECT_NAME} ${SOURCES} ${HEADERS} ${GLSL})
+cuda_add_executable(${CMAKE_PROJECT_NAME} ${SOURCES} ${CUDA_SOURCES} ${HEADERS} ${GLSL})
 
 # Get the Eigen environment variable. Since Eigen is a header-only library, we
 # just need to add it to the include directory.
@@ -61,7 +65,7 @@ if(WIN32)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4996")
 else()
   # Enable all pedantic warnings.
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x -Wall -pedantic")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x -Wall -pedantic -O3")
   if(APPLE)
     # Add required frameworks for GLFW.
     target_link_libraries(${CMAKE_PROJECT_NAME} "-framework OpenGL -framework Cocoa -framework IOKit -framework CoreVideo")
