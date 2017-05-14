@@ -2,6 +2,7 @@
 #include "CUDA.cuh"
 #include <vector_types.h>
 #include <vector_functions.h>
+#include "VectorFuncs.cuh"
 #include <stdio.h>
 #include <thrust/device_ptr.h>
 #include <thrust/device_vector.h>
@@ -9,9 +10,10 @@
 #include <thrust/tuple.h>
 #include <thrust/sort.h>
 
-#define BLOCK_SIZE 16
+#define BLOCK_SIZE 64
 #define RADIUS 0.08f
 #define CELL_SIZE (2 * RADIUS)
+#define ELASTICITY 0.5f
 
 static void CheckCudaErrorAux (const char *, unsigned, const char *, cudaError_t);
 #define CUDA_CHECK_RETURN(value) CheckCudaErrorAux(__FILE__,__LINE__, #value, value)
@@ -136,6 +138,81 @@ void sortGrid(SimulationData *data) {
     thrust::sort_by_key(hash_ptr, hash_ptr + size,
         thrust::make_zip_iterator(thrust::make_tuple(pos_ptr, vel_ptr)),
         comparePairs());
+}
+
+// Collision
+void collideParticles(SimulationData *data) {
+
+}
+
+// Interact with boundaries
+void __global__ boundaries(float3 *position_d, float3 *velocity_d, int size) {
+    int id = blockDim.x * blockIdx.x + threadIdx.x;
+    if (id >= size) {
+        return;
+    }
+
+    float3 pos = position_d[id];
+    float3 vel = velocity_d[id];
+
+    if (pos.x < -3) {
+        pos.x = -3;
+        vel.x *= -ELASTICITY;
+    }
+    else if (pos.x > 3) {
+        pos.x = 3;
+        vel.x *= -ELASTICITY;
+    }
+    if (pos.y < 0) {
+        pos.y = 0;
+        vel.y *= -ELASTICITY;
+    }
+    else if (pos.y > 6) {
+        pos.y = 6;
+        vel.y *= -ELASTICITY;
+    }
+    if (pos.z < -3) {
+        pos.z = -3;
+        vel.z *= -ELASTICITY;
+    }
+    else if (pos.z > 3) {
+        pos.z = 3;
+        vel.z *= -ELASTICITY;
+    }
+
+    position_d[id] = pos;
+    velocity_d[id] = vel;
+}
+
+void interactBoundaries(SimulationData *data) {
+    int size = data->activeParticles;
+    dim3 dimBlock = dim3(BLOCK_SIZE);
+    dim3 dimGrid = dim3((size + BLOCK_SIZE - 1) / BLOCK_SIZE);
+
+    float3 *pos_d = (float3 *)data->position_d;
+    float3 *vel_d = (float3 *)data->velocity_d;
+
+    boundaries<<<dimBlock, dimGrid>>>(pos_d, vel_d, size);
+}
+
+// Apply forces
+__global__ void integrate(float3 *position_d, float3 *velocity_d, int size, float dt) {
+    int id = blockDim.x * blockIdx.x + threadIdx.x;
+    if (id >= size) {
+        return;
+    }
+    position_d[id] += velocity_d[id] * dt;
+}
+
+void applyForces(SimulationData *data, float dt) {
+    int size = data->activeParticles;
+    dim3 dimBlock = dim3(BLOCK_SIZE);
+    dim3 dimGrid = dim3((size + BLOCK_SIZE - 1) / BLOCK_SIZE);
+
+    float3 *pos_d = (float3 *)data->position_d;
+    float3 *vel_d = (float3 *)data->velocity_d;
+
+    integrate<<<dimBlock, dimGrid>>>(pos_d, vel_d, size, dt);
 }
 
 // Utility functions

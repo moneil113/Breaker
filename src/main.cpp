@@ -148,7 +148,7 @@ static void init() {
 	camera->setInitDistance(12.0f);
 
     cout << "in init()\n";
-    sim = make_shared<ParticleSim>(100);
+    sim = make_shared<ParticleSim>(NUM_PARTICLES);
     sim->init();
 	// grav << 0.0f, -9.8f, 0.0f;
 	// t = 0.0f;
@@ -249,13 +249,8 @@ static void render() {
 
 void stepParticles() {
 	if(keyToggles[(unsigned)' ']) {
-        // if (keyToggles[(unsigned) 's']) {
-        //     rotateGravity(0.2);
-        // }
-        // sim->stepParticles(t, dt, grav, keyToggles);
-		// t += dt;
         sim->step();
-        keyToggles[(unsigned)' '] = false;
+        // keyToggles[(unsigned)' '] = false;
 	}
 }
 
@@ -309,13 +304,23 @@ int main(int argc, char **argv) {
 	// Initialize scene.
 	init();
     // Initialize frame rate counter
-    // double oldTime = glfwGetTime();
-    // double newTime;
+    double oldTime = glfwGetTime();
+    double newTime;
+    double fpsTime = oldTime;
+    int numFrames = 0;
 	// Loop until the user closes the window.
 	while(!glfwWindowShouldClose(window)) {
-        // newTime = glfwGetTime();
+        newTime = glfwGetTime();
         // cout << "fps: " << 1 / (newTime - oldTime) << endl;
-        // oldTime = newTime;
+        if (newTime - fpsTime > 0.5) {
+            char fps[40];
+            sprintf(fps, "Breaker Fluid Simulation (%.2f ms/frame)", 1000.0/numFrames);
+            glfwSetWindowTitle(window, fps);
+            fpsTime = newTime;
+            numFrames = 0;
+        }
+        oldTime = newTime;
+        numFrames++;
 		// Step particles.
 		stepParticles();
 		// Render scene.

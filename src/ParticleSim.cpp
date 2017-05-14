@@ -76,11 +76,15 @@ void ParticleSim::step() {
 
     calcGrid(&data);
 
-    print();
+    // print();
 
     sortGrid(&data);
 
-    print();
+    // print();
+
+    interactBoundaries(&data);
+
+    applyForces(&data, 0.1f);
 
     unmapGLBuffer();
 }

@@ -23,6 +23,7 @@ struct SimulationData {
     float minZ, maxZ;
     float *position_d;
     float *velocity_d;
+    // particleHash_d is an int2 array of the form (grid cell, particle id)
     int *particleHash_d;
     int n;
     int activeParticles;
