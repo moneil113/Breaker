@@ -1,43 +1,156 @@
-#include "ParticleSim.h"
+// #include "ParticleSim.h"
+#include "CUDA.cuh"
+#include <vector_types.h>
+#include <vector_functions.h>
+#include <stdio.h>
+#include <thrust/device_ptr.h>
+#include <thrust/device_vector.h>
+#include <thrust/iterator/zip_iterator.h>
+#include <thrust/tuple.h>
+#include <thrust/sort.h>
+
 #define BLOCK_SIZE 16
+#define RADIUS 0.08f
+#define CELL_SIZE (2 * RADIUS)
 
-void initCuda(float **data, float **data_g, int size) {
-    // Vector3f *data_g;
+static void CheckCudaErrorAux (const char *, unsigned, const char *, cudaError_t);
+#define CUDA_CHECK_RETURN(value) CheckCudaErrorAux(__FILE__,__LINE__, #value, value)
 
-    // cudaMalloc((void **)&data_g, sizeof(Vector3f) * size * size);
-
-    cudaMemcpy(*data_g, *data, 3 * sizeof(float) * size, cudaMemcpyHostToDevice);
+__global__ void zeroArray(float3 *data, int size) {
+    int id = blockDim.x * blockIdx.x + threadIdx.x;
+    if (id >= size) {
+        return;
+    }
+    data[id] = make_float3(0.0f, 0.0f, 0.0f);
 }
 
-__global__ void kernel(float *data, int size) {
+void initCuda(SimulationData *data) {
+    int size = data->n;
+
+    dim3 dimBlock = dim3(BLOCK_SIZE);
+    dim3 dimGrid = dim3((size + BLOCK_SIZE - 1) / BLOCK_SIZE);
+
+    float *vel_d;
+    int *hash_d;
+
+    zeroArray<<<dimBlock, dimGrid>>>((float3 *)(data->position_d), size);
+
+    CUDA_CHECK_RETURN(cudaMalloc((void **)&vel_d, sizeof(float3) * size));
+    zeroArray<<<dimBlock, dimGrid>>>((float3 *)vel_d, size);
+
+    CUDA_CHECK_RETURN(cudaMalloc((void **)&hash_d, sizeof(int2) * size));
+
+    data->velocity_d = vel_d;
+    data->particleHash_d = hash_d;
+
+    data->minX = 3;
+    data->maxX = -3;
+    data->minY = 0;
+    data->maxY = 6;
+    data->minZ = -3;
+    data->maxZ = 3;
+}
+
+void copyParticles(SimulationData *data, float *newPosition_h, float *newVelocity_h, int newParticles) {
+    int active = data->activeParticles;
+    float *start = data->position_d + active * 3;
+    CUDA_CHECK_RETURN(cudaMemcpy(start, newPosition_h, newParticles * sizeof(float3), cudaMemcpyHostToDevice));
+
+    start = data->velocity_d + active * 3;
+    CUDA_CHECK_RETURN(cudaMemcpy(start, newVelocity_h, newParticles * sizeof(float3), cudaMemcpyHostToDevice));
+
+    data->activeParticles += newParticles;
+}
+
+__global__ void kernel(float3 *data, int size) {
     int id = blockDim.x * blockIdx.x + threadIdx.x;
 
-    // data[row * width + col] += (Vector3f) {1.f, 2.f, 3.f};
-    // data[row * width + col].x += 1.f;
-    // data[row * width + col].y += 2.f;
-    // data[row * width + col].z += 3.f;
-    // data[id].x += 0.01f;
-    // data[id].y += 0.02f;
-    // data[id].z += 0.03f;
     if (id < size) {
-        data[3 * id] += 0.01f * (id % 10);
-        data[3 * id + 1] += 0.01f * (id / 10);
-        // data[3 * id + 2] = 1.0f;
-        // data[3 * id] += 0.1f;
-        // data[3 * id + 1] += 0.1f;
-        // data[3 * id + 2] += 0.1f;
+        data[id].x += 0.01f * (id % 10);
+        data[id].y += 0.01f * (id / 10);
     }
 }
-
-
 
 void runKernel(float *data_g, int size) {
     dim3 dimBlock = dim3(BLOCK_SIZE);
     dim3 dimGrid = dim3((size + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
-    kernel<<<dimBlock, dimGrid>>>(data_g, size);
+    kernel<<<dimBlock, dimGrid>>>((float3 *)data_g, size);
 }
 
-void copyDeviceToHost(float *data, float *data_g, int size) {
-    cudaMemcpy(data, data_g, 3 * sizeof(float) * size, cudaMemcpyDeviceToHost);
+// Hashing functions
+__device__ int3 getCell(float3 position) {
+    int x = (int) (position.x / CELL_SIZE);
+    int y = (int) (position.y / CELL_SIZE);
+    int z = (int) (position.z / CELL_SIZE);
+
+    return make_int3(x, y, z);
+}
+
+__device__ int cellNumber(int3 cell, float3 gridSize) {
+    int width = (int) ceilf((gridSize.x) / CELL_SIZE);
+    int height = (int) ceilf((gridSize.y) / CELL_SIZE);
+    return cell.x + cell.y * width + cell.z * width * height;
+}
+
+__global__ void hashParticles(float3 *position_d, int2 *particleHash_d, int size) {
+    int id = blockDim.x * blockIdx.x + threadIdx.x;
+
+    if (id >= size) {
+        return;
+    }
+
+    int3 cell = getCell(position_d[id]);
+    int cellId = cellNumber(cell, make_float3(6, 6, 6));
+    particleHash_d[id] = make_int2(cellId, id);
+    // position_d[id] = make_float3(cell.x, cell.y, cell.z);
+}
+
+void calcGrid(SimulationData *data) {
+    int size = data->activeParticles;
+    dim3 dimBlock = dim3(BLOCK_SIZE);
+    dim3 dimGrid = dim3((size + BLOCK_SIZE - 1) / BLOCK_SIZE);
+
+    float3 *pos_d = (float3 *)data->position_d;
+    int2 *hash_d = (int2 *)data->particleHash_d;
+
+    hashParticles<<<dimBlock, dimGrid>>>(pos_d, hash_d, size);
+}
+
+// Sorting functions
+struct comparePairs {
+    __host__ __device__
+    bool operator()(const int2 &a, const int2 &b) {
+        return a.x < b.x;
+    }
+};
+
+void sortGrid(SimulationData *data) {
+    int size = data->activeParticles;
+    // We want to sort both the position_d and velocity_d arrays using the keys
+    // stored in the particleHash_d array
+    thrust::device_ptr<float3> pos_ptr((float3 *)data->position_d);
+    thrust::device_ptr<float3> vel_ptr((float3 *)data->velocity_d);
+    thrust::device_ptr<int2> hash_ptr((int2 *)data->particleHash_d);
+
+    thrust::sort_by_key(hash_ptr, hash_ptr + size,
+        thrust::make_zip_iterator(thrust::make_tuple(pos_ptr, vel_ptr)),
+        comparePairs());
+}
+
+// Utility functions
+void copyDeviceToHost(void *data, void *data_d, int size) {
+    CUDA_CHECK_RETURN(cudaMemcpy(data, data_d, size, cudaMemcpyDeviceToHost));
+}
+
+/**
+ * Check the return value of the CUDA runtime API call and exit
+ * the application if the call has failed.
+ */
+static void CheckCudaErrorAux (const char *file, unsigned line, const char *statement, cudaError_t err) {
+	if (err == cudaSuccess)
+		return;
+
+    fprintf(stderr, "%s returned %s (%d) at %s:%u\n", statement, cudaGetErrorString(err), err, file, line);
+	exit (1);
 }

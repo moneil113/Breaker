@@ -39,29 +39,29 @@ bool keyToggles[256] = {false}; // only for English keyboards!
 
 // Lines describing default boundary box
 const GLfloat lineArray[] = {
-    -0.05f, -0.05f, -0.05f,
-    6.05f, -0.05f, -0.05f,
+    -3.05f, -0.05f, -3.05f,
+    3.05f, -0.05f, -3.05f,
 
-    6.05f, -0.05f, -0.05f,
-    6.05f, -0.05f, 6.05f,
+    3.05f, -0.05f, -3.05f,
+    3.05f, -0.05f, 3.05f,
 
-    6.05f, -0.05f, 6.05f,
-    -0.05f, -0.05f, 6.05f,
+    3.05f, -0.05f, 3.05f,
+    -3.05f, -0.05f, 3.05f,
 
-    -0.05f, -0.05f, 6.05f,
-    -0.05f, -0.05f, -0.05f,
+    -3.05f, -0.05f, 3.05f,
+    -3.05f, -0.05f, -3.05f,
 
-    -0.05f, -0.05f, -0.05f,
-    -0.05f, 20.0f, -0.05f,
+    -3.05f, -0.05f, -3.05f,
+    -3.05f, 20.0f, -3.05f,
 
-    6.05f, -0.05f, -0.05f,
-    6.05f, 20.0f, -0.05f,
+    3.05f, -0.05f, -3.05f,
+    3.05f, 20.0f, -3.05f,
 
-    6.05f, -0.05f, 6.05f,
-    6.05f, 20.0f, 6.05f,
+    3.05f, -0.05f, 3.05f,
+    3.05f, 20.0f, 3.05f,
 
-    -0.05f, -0.05f, 6.05f,
-    -0.05f, 20.0f, 6.05f
+    -3.05f, -0.05f, 3.05f,
+    -3.05f, 20.0f, 3.05f
 };
 GLuint lineBufID;
 
@@ -85,13 +85,6 @@ static void key_callback(GLFWwindow *window, int key, int scancode, int action, 
 	if(key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
 		glfwSetWindowShouldClose(window, GL_TRUE);
 	}
-
-    // if (key == GLFW_KEY_RIGHT && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-    //     rotateGravity(1);
-    // }
-    // if (key == GLFW_KEY_LEFT && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-    //     rotateGravity(-1);
-    // }
 }
 
 // This function is called when the mouse is clicked
@@ -120,22 +113,6 @@ static void cursor_position_callback(GLFWwindow* window, double xmouse, double y
 
 static void char_callback(GLFWwindow *window, unsigned int key) {
 	keyToggles[key] = !keyToggles[key];
-    // if (key == 'r') {
-    //     sim->reInit();
-    // }
-    // if (key == 's') {
-    //     grav << 0.0f, -9.8f, 0.0f;
-    //     rotation = 0;
-    // }
-    // if (key == '1') {
-    //     keyToggles[(unsigned) '3'] = false;
-    //     keyToggles[(unsigned) '1'] = true;
-    // }
-    // if (key == '3') {
-    //     keyToggles[(unsigned) '1'] = false;
-    //     keyToggles[(unsigned) '2'] = false;
-    //     keyToggles[(unsigned) '3'] = true;
-    // }
 }
 
 // If the window is resized, capture the new size and reset the viewport
@@ -171,7 +148,7 @@ static void init() {
 	camera->setInitDistance(12.0f);
 
     cout << "in init()\n";
-    sim = make_shared<ParticleSim>(500);
+    sim = make_shared<ParticleSim>(100);
     sim->init();
 	// grav << 0.0f, -9.8f, 0.0f;
 	// t = 0.0f;
@@ -278,6 +255,7 @@ void stepParticles() {
         // sim->stepParticles(t, dt, grav, keyToggles);
 		// t += dt;
         sim->step();
+        keyToggles[(unsigned)' '] = false;
 	}
 }
 
@@ -331,13 +309,13 @@ int main(int argc, char **argv) {
 	// Initialize scene.
 	init();
     // Initialize frame rate counter
-    double oldTime = glfwGetTime();
-    double newTime;
+    // double oldTime = glfwGetTime();
+    // double newTime;
 	// Loop until the user closes the window.
 	while(!glfwWindowShouldClose(window)) {
-        newTime = glfwGetTime();
-        cout << "fps: " << 1 / (newTime - oldTime) << endl;
-        oldTime = newTime;
+        // newTime = glfwGetTime();
+        // cout << "fps: " << 1 / (newTime - oldTime) << endl;
+        // oldTime = newTime;
 		// Step particles.
 		stepParticles();
 		// Render scene.

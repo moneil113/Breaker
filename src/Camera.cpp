@@ -56,5 +56,5 @@ void Camera::applyViewMatrix(std::shared_ptr<MatrixStack> MV) const {
 	MV->translate(translations);
 	MV->rotate(rotations(1), Eigen::Vector3f(1.0f, 0.0f, 0.0f));
 	MV->rotate(rotations(0), Eigen::Vector3f(0.0f, 1.0f, 0.0f));
-    MV->translate(Eigen::Vector3f(-3.0f, 0.0f, -3.0f));
+    // MV->translate(Eigen::Vector3f(-3.0f, 0.0f, -3.0f));
 }

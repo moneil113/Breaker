@@ -2,6 +2,7 @@
 #include "CUDA.cuh"
 #include "GLSL.h"
 #include <iostream>
+#include <iomanip>
 
 #include <cuda_gl_interop.h>
 #include <cuda_runtime_api.h>
@@ -15,25 +16,22 @@ static void CheckCudaErrorAux (const char *, unsigned, const char *, cudaError_t
 ParticleSim::ParticleSim(int size) :
     size(size)
 {
-    data = new float[3 * size];
+    // data = new float[3 * size];
 }
 
 ParticleSim::~ParticleSim() {
 }
 
 void ParticleSim::init() {
-std::cout << "init" << '\n';
-test();
+    // data = {};
     createVBO(cudaGraphicsMapFlagsWriteDiscard);
-    float *dptr;
-    CUDA_CHECK_RETURN(cudaGraphicsMapResources(1, &cuda_vbo_resource, 0));
-    size_t bytes;
-    CUDA_CHECK_RETURN(cudaGraphicsResourceGetMappedPointer((void **)&dptr, &bytes, cuda_vbo_resource));
-std::cout << "init post cuda" << '\n';
+    data.position_d = mapGLBuffer();
+    data.activeParticles = 0;
+    data.n = size;
 
-    initCuda(&data, &dptr, size);
-    CUDA_CHECK_RETURN(cudaGraphicsUnmapResources(1, &cuda_vbo_resource, 0));
-std::cout << "init done" << '\n';
+    initCuda(&data);
+
+    unmapGLBuffer();
 }
 
 float randomFloat(float l, float h) {
@@ -41,19 +39,22 @@ float randomFloat(float l, float h) {
     return (1.0f - r) * l + r * h;
 }
 
-void ParticleSim::test() {
-    // data = new Vector3f[size];
+void ParticleSim::spawnParticles() {
+    float newPos[10 * 3];
+    float newVel[10 * 3];
+    for (size_t i = 0; i < 10; i++) {
+        newPos[3 * i] = randomFloat(-0.2, 0.2);
+        newPos[3 * i + 1] = randomFloat(2.8, 3.2);
+        newPos[3 * i + 2] = randomFloat(-0.2, 0.2);
 
-    for (int i = 0; i < size; i++) {
-        data[3 * i] = 0.1f * (i % 10);
-        data[3 * i + 1] = 0.1f * (i / 10);
-        data[3 * i + 2] = 1.0f;
+        newVel[3 * i] = randomFloat(-1, 1);
+        newVel[3 * i + 1] = randomFloat(-1, 1);
+        newVel[3 * i + 2] = randomFloat(-1, 1);
     }
-    cout << "allocated\n";
+    copyParticles(&data, newPos, newVel, 10);
 }
 
 void ParticleSim::createVBO(unsigned int vbo_res_flags) {
-std::cout << "createVBO" << '\n';
     glGenBuffers(1, &vbo);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
 
@@ -63,64 +64,84 @@ std::cout << "createVBO" << '\n';
 
     // register buffer object with CUDA
     CUDA_CHECK_RETURN(cudaGraphicsGLRegisterBuffer(&cuda_vbo_resource, vbo, vbo_res_flags));
-std::cout << "createVBO done" << '\n';
 }
 
 void ParticleSim::step() {
-// std::cout << "step" << '\n';
-    float *dptr;
-    CUDA_CHECK_RETURN(cudaGraphicsMapResources(1, &cuda_vbo_resource, 0));
-    size_t bytes;
-    CUDA_CHECK_RETURN(cudaGraphicsResourceGetMappedPointer((void **)&dptr, &bytes, *(&cuda_vbo_resource)));
-// std::cout << "step post cuda" << '\n';
-    // launch kernel
-    runKernel(dptr, size);
-// std::cout << "step post kernel" << '\n';
-    CUDA_CHECK_RETURN(cudaGraphicsUnmapResources(1, &cuda_vbo_resource, 0));
-// std::cout << "step done" << '\n';
+    data.position_d = mapGLBuffer();
+
+    // TODO create sinks and sources for particles
+    if (data.activeParticles < data.n) {
+        spawnParticles();
+    }
+
+    calcGrid(&data);
+
+    print();
+
+    sortGrid(&data);
+
+    print();
+
+    unmapGLBuffer();
 }
 
 void ParticleSim::print() {
-std::cout << "print" << '\n';
-    float *dptr;
-    CUDA_CHECK_RETURN(cudaGraphicsMapResources(1, &cuda_vbo_resource, 0));
-    size_t bytes;
-    CUDA_CHECK_RETURN(cudaGraphicsResourceGetMappedPointer((void **)&dptr, &bytes, cuda_vbo_resource));
-std::cout << "print before copy" << '\n';
-    copyDeviceToHost(data, dptr, size);
-std::cout << "print after copy" << '\n';
+    int count = data.activeParticles;
+    float *local = new float[count * 3];
+    copyDeviceToHost(local, data.position_d, count * 3 * sizeof(float));
 
-    CUDA_CHECK_RETURN(cudaGraphicsUnmapResources(1, &cuda_vbo_resource, 0));
-    if (data) {
-        for (int i = 0; i < size; i++) {
-            // Vector3f v = data[i];
-            cout << data[3 * i] << " " << data[3 * i + 1] << " " << data[3 * i + 2] << endl;
+    if (local) {
+        cout << "--------------\n";
+        cout << setprecision(3);
+        for (int i = 0; i < count; i++) {
+            cout << local[3 * i] << " " << local[3 * i + 1] << " " << local[3 * i + 2] << endl;
         }
+        cout << "--------------\n";
     }
     else {
-        cout << data << endl;
+        cout << local << endl;
     }
-std::cout << "print done" << '\n';
+    delete[] local;
+
+    int *localHash = new int[count * 2];
+    copyDeviceToHost(localHash, data.particleHash_d, count * 2 * sizeof(int));
+    if (localHash) {
+        cout << "--------------\n";
+        for (int i = 0; i < count; i++) {
+            cout << "  " << localHash[2 * i] << " " << localHash[2 * i + 1] << endl;
+        }
+        cout << "--------------\n";
+    }
+    else {
+        cout << localHash << endl;
+    }
+    delete[] localHash;
 }
 
 void ParticleSim::draw(std::shared_ptr<Program> prog) {
-// std::cout << "render" << '\n';
     // Enable and bind position array
     glEnableVertexAttribArray(prog->getAttribute("aPos"));
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    // glBufferData(GL_ARRAY_BUFFER, 3 * size * sizeof(float), 0, GL_STATIC_DRAW);
     glVertexAttribPointer(prog->getAttribute("aPos"), 3, GL_FLOAT, GL_FALSE, 0, 0);
-    // glVertexPointer(3, GL_FLOAT, 0, 0);
 
     // Draw
-    // glEnableClientState(GL_VERTEX_ARRAY);
-    // glColor3f(1.0, 1.0, 1.0);
-    glDrawArrays(GL_POINTS, 0, size);
-    // glDisableClientState(GL_VERTEX_ARRAY);
+    glDrawArrays(GL_POINTS, 0, data.activeParticles);
 
     // Disable and unbind
     glDisableVertexAttribArray(prog->getAttribute("aPos"));
     glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
+float *ParticleSim::mapGLBuffer() {
+    float *dptr;
+    CUDA_CHECK_RETURN(cudaGraphicsMapResources(1, &cuda_vbo_resource, 0));
+    size_t bytes;
+    CUDA_CHECK_RETURN(cudaGraphicsResourceGetMappedPointer((void **)&dptr, &bytes, *(&cuda_vbo_resource)));
+    return dptr;
+}
+
+void ParticleSim::unmapGLBuffer() {
+    CUDA_CHECK_RETURN(cudaGraphicsUnmapResources(1, &cuda_vbo_resource, 0));
 }
 
 /**
