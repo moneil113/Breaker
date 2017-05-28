@@ -21,10 +21,16 @@ struct SimulationData {
     float minX, maxX;
     float minY, maxY;
     float minZ, maxZ;
+    float gravity[3];
+    int numCells[3]; // number of cells in x, y, z
+    int totalCells; // total numbers of cells in flattened array
     float *position_d;
     float *velocity_d;
-    // particleHash_d is an int2 array of the form (grid cell, particle id)
+    // particleHash_d gives the cell that a particle is in
     int *particleHash_d;
+    // cellIndices_d is an int2 array of the form (start index, end index)
+    // has width * height * depth entries, one for each cell
+    int *cellIndices_d;
     int n;
     int activeParticles;
 };
@@ -52,7 +58,7 @@ public:
     virtual ~ParticleSim ();
     void draw(std::shared_ptr<Program> prog);
     void init();
-    void step();
+    void step(float dt);
     void print();
 };
 

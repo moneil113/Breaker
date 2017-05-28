@@ -147,7 +147,6 @@ static void init() {
 	camera = make_shared<Camera>();
 	camera->setInitDistance(12.0f);
 
-    cout << "in init()\n";
     sim = make_shared<ParticleSim>(NUM_PARTICLES);
     sim->init();
 	// grav << 0.0f, -9.8f, 0.0f;
@@ -247,9 +246,9 @@ static void render() {
 	GLSL::checkError(GET_FILE_LINE);
 }
 
-void stepParticles() {
+void stepParticles(float dt) {
 	if(keyToggles[(unsigned)' ']) {
-        sim->step();
+        sim->step(dt);
         // keyToggles[(unsigned)' '] = false;
 	}
 }
@@ -311,10 +310,11 @@ int main(int argc, char **argv) {
 	// Loop until the user closes the window.
 	while(!glfwWindowShouldClose(window)) {
         newTime = glfwGetTime();
+        float dt = newTime - oldTime;
         // cout << "fps: " << 1 / (newTime - oldTime) << endl;
         if (newTime - fpsTime > 0.5) {
             char fps[40];
-            sprintf(fps, "Breaker Fluid Simulation (%.2f ms/frame)", 1000.0/numFrames);
+            sprintf(fps, "Breaker Fluid Simulation (%.2f ms/frame)", 500.0/numFrames);
             glfwSetWindowTitle(window, fps);
             fpsTime = newTime;
             numFrames = 0;
@@ -322,7 +322,7 @@ int main(int argc, char **argv) {
         oldTime = newTime;
         numFrames++;
 		// Step particles.
-		stepParticles();
+		stepParticles(dt);
 		// Render scene.
 		render();
 #ifdef BAKE

@@ -28,8 +28,20 @@ void ParticleSim::init() {
     data.position_d = mapGLBuffer();
     data.activeParticles = 0;
     data.n = size;
+    // data.minX = -3;
+    // data.maxX = -3;
+    // data.minY = 0;
+    // data.maxY = 6;
+    // data.minZ = -3;
+    // data.maxZ = -3;
+    data.gravity[0] = 0;
+    data.gravity[1] = -9.8;
+    data.gravity[2] = 0;
 
     initCuda(&data);
+    cout << "(" << data.minX << ", " << data.minY << ", " << data.minZ << ") to ";
+    cout << "(" << data.maxX << ", " << data.maxY << ", " << data.maxZ << ")\n";
+    cout << data.totalCells << endl;
 
     unmapGLBuffer();
 }
@@ -51,6 +63,21 @@ void ParticleSim::spawnParticles() {
         newVel[3 * i + 1] = randomFloat(-1, 1);
         newVel[3 * i + 2] = randomFloat(-1, 1);
     }
+    // copyParticles(&data, newPos, newVel, 10);
+    // newPos[0] = -0.2;
+    // newPos[1] = 3;
+    // newPos[2] = 0;
+    // newVel[0] = 1;
+    // newVel[1] = 0;
+    // newVel[2] = 0;
+    //
+    // newPos[3] = 0.2;
+    // newPos[4] = 3;
+    // newPos[5] = 0;
+    // newVel[3] = -1;
+    // newVel[4] = 0;
+    // newVel[5] = 0;
+
     copyParticles(&data, newPos, newVel, 10);
 }
 
@@ -66,7 +93,7 @@ void ParticleSim::createVBO(unsigned int vbo_res_flags) {
     CUDA_CHECK_RETURN(cudaGraphicsGLRegisterBuffer(&cuda_vbo_resource, vbo, vbo_res_flags));
 }
 
-void ParticleSim::step() {
+void ParticleSim::step(float dt) {
     data.position_d = mapGLBuffer();
 
     // TODO create sinks and sources for particles
@@ -74,51 +101,42 @@ void ParticleSim::step() {
         spawnParticles();
     }
 
-    calcGrid(&data);
+    // cout << "-----\n";
 
-    // print();
+    calcGrid(&data);
 
     sortGrid(&data);
 
-    // print();
+    collideParticles(&data);
 
     interactBoundaries(&data);
 
-    applyForces(&data, 0.1f);
+    applyForces(&data, dt);
 
     unmapGLBuffer();
 }
 
 void ParticleSim::print() {
     int count = data.activeParticles;
-    float *local = new float[count * 3];
-    copyDeviceToHost(local, data.position_d, count * 3 * sizeof(float));
+    float *localPos = new float[count * 3];
+    copyDeviceToHost(localPos, data.position_d, count * 3 * sizeof(float));
 
-    if (local) {
-        cout << "--------------\n";
-        cout << setprecision(3);
-        for (int i = 0; i < count; i++) {
-            cout << local[3 * i] << " " << local[3 * i + 1] << " " << local[3 * i + 2] << endl;
-        }
-        cout << "--------------\n";
-    }
-    else {
-        cout << local << endl;
-    }
-    delete[] local;
+    float *localVel = new float[count * 3];
+    copyDeviceToHost(localVel, data.velocity_d, count * 3 * sizeof(float));
 
-    int *localHash = new int[count * 2];
-    copyDeviceToHost(localHash, data.particleHash_d, count * 2 * sizeof(int));
-    if (localHash) {
-        cout << "--------------\n";
-        for (int i = 0; i < count; i++) {
-            cout << "  " << localHash[2 * i] << " " << localHash[2 * i + 1] << endl;
-        }
-        cout << "--------------\n";
+    int *localHash = new int[count];
+    copyDeviceToHost(localHash, data.particleHash_d, count * sizeof(int));
+    cout << "--------------\n";
+    for (int i = 0; i < count; i++) {
+        cout << "Particle " << i << ":\n";
+        cout << " Position: (" << localPos[3 * i] << ", " << localPos[3 * i + 1] << ", " << localPos[3 * i + 2] << ")";
+        cout << " Velocity: (" << localVel[3 * i] << ", " << localVel[3 * i + 1] << ", " << localVel[3 * i + 2] << ")";
+        cout << " Cell: " << localHash[i] << endl;
     }
-    else {
-        cout << localHash << endl;
-    }
+    cout << "--------------\n";
+
+    delete[] localPos;
+    delete[] localVel;
     delete[] localHash;
 }
 
@@ -156,5 +174,5 @@ static void CheckCudaErrorAux (const char *file, unsigned line, const char *stat
 	if (err == cudaSuccess)
 		return;
 	std::cerr << statement<<" returned " << cudaGetErrorString(err) << "("<<err<< ") at "<<file<<":"<<line << std::endl;
-	exit (1);
+    exit(1);
 }

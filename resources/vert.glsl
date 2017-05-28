@@ -15,5 +15,5 @@ void main() {
 	// vCol.a = 1.0;
 
     // http://stackoverflow.com/questions/25780145/gl-pointsize-corresponding-to-world-space-size
-    gl_PointSize = screenSize.y * P[1][1] * 0.08 / gl_Position.w;
+    gl_PointSize = screenSize.y * P[1][1] * 0.1 / gl_Position.w;
 }

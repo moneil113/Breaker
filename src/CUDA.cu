@@ -1,4 +1,5 @@
-// #include "ParticleSim.h"
+// Implementation of device kernels and calling code
+
 #include "CUDA.cuh"
 #include <vector_types.h>
 #include <vector_functions.h>
@@ -11,12 +12,21 @@
 #include <thrust/sort.h>
 
 #define BLOCK_SIZE 64
-#define RADIUS 0.08f
+#define RADIUS 0.1f
 #define CELL_SIZE (2 * RADIUS)
 #define ELASTICITY 0.5f
+#define VISCOSITY_GAIN 0.1f
 
 static void CheckCudaErrorAux (const char *, unsigned, const char *, cudaError_t);
 #define CUDA_CHECK_RETURN(value) CheckCudaErrorAux(__FILE__,__LINE__, #value, value)
+
+int3 numCells(float3 dimensions) {
+    int x = (int) ceilf((dimensions.x) / CELL_SIZE);
+    int y = (int) ceilf((dimensions.y) / CELL_SIZE);
+    int z = (int) ceilf((dimensions.z) / CELL_SIZE);
+
+    return make_int3(x, y, z);
+}
 
 __global__ void zeroArray(float3 *data, int size) {
     int id = blockDim.x * blockIdx.x + threadIdx.x;
@@ -40,72 +50,113 @@ void initCuda(SimulationData *data) {
     CUDA_CHECK_RETURN(cudaMalloc((void **)&vel_d, sizeof(float3) * size));
     zeroArray<<<dimBlock, dimGrid>>>((float3 *)vel_d, size);
 
-    CUDA_CHECK_RETURN(cudaMalloc((void **)&hash_d, sizeof(int2) * size));
+    CUDA_CHECK_RETURN(cudaMalloc((void **)&hash_d, sizeof(int) * size));
+
+    // Set up cell index array
+    int *indices_d;
+    int3 cells = numCells(make_float3(6, 6, 6));
+
+    CUDA_CHECK_RETURN(cudaMalloc((void **)&indices_d,
+                                 sizeof(int2) * cells.x * cells.y * cells.z));
 
     data->velocity_d = vel_d;
     data->particleHash_d = hash_d;
+    data->cellIndices_d = indices_d;
 
-    data->minX = 3;
-    data->maxX = -3;
+    data->minX = -3;
+    data->maxX = 3;
     data->minY = 0;
     data->maxY = 6;
     data->minZ = -3;
     data->maxZ = 3;
+
+    data->numCells[0] = cells.x;
+    data->numCells[1] = cells.y;
+    data->numCells[2] = cells.z;
+
+    data->totalCells = cells.x * cells.y * cells.z;
 }
 
-void copyParticles(SimulationData *data, float *newPosition_h, float *newVelocity_h, int newParticles) {
+void copyParticles(SimulationData *data,
+                   float *newPosition_h,
+                   float *newVelocity_h,
+                   int newParticles) {
     int active = data->activeParticles;
     float *start = data->position_d + active * 3;
-    CUDA_CHECK_RETURN(cudaMemcpy(start, newPosition_h, newParticles * sizeof(float3), cudaMemcpyHostToDevice));
+    CUDA_CHECK_RETURN(cudaMemcpy(start, newPosition_h,
+                                 newParticles * sizeof(float3),
+                                 cudaMemcpyHostToDevice));
 
     start = data->velocity_d + active * 3;
-    CUDA_CHECK_RETURN(cudaMemcpy(start, newVelocity_h, newParticles * sizeof(float3), cudaMemcpyHostToDevice));
+    CUDA_CHECK_RETURN(cudaMemcpy(start, newVelocity_h,
+                                 newParticles * sizeof(float3),
+                                 cudaMemcpyHostToDevice));
 
     data->activeParticles += newParticles;
 }
 
-__global__ void kernel(float3 *data, int size) {
-    int id = blockDim.x * blockIdx.x + threadIdx.x;
-
-    if (id < size) {
-        data[id].x += 0.01f * (id % 10);
-        data[id].y += 0.01f * (id / 10);
-    }
-}
-
-void runKernel(float *data_g, int size) {
-    dim3 dimBlock = dim3(BLOCK_SIZE);
-    dim3 dimGrid = dim3((size + BLOCK_SIZE - 1) / BLOCK_SIZE);
-
-    kernel<<<dimBlock, dimGrid>>>((float3 *)data_g, size);
-}
-
-// Hashing functions
-__device__ int3 getCell(float3 position) {
-    int x = (int) (position.x / CELL_SIZE);
-    int y = (int) (position.y / CELL_SIZE);
-    int z = (int) (position.z / CELL_SIZE);
+// Hashing
+__device__ int3 getCell(float3 position, float3 min) {
+    int x = (int) ((position.x - min.x) / CELL_SIZE);
+    int y = (int) ((position.y - min.y) / CELL_SIZE);
+    int z = (int) ((position.z - min.z) / CELL_SIZE);
 
     return make_int3(x, y, z);
 }
 
-__device__ int cellNumber(int3 cell, float3 gridSize) {
-    int width = (int) ceilf((gridSize.x) / CELL_SIZE);
-    int height = (int) ceilf((gridSize.y) / CELL_SIZE);
+__device__ int cellNumber(int3 cell, int3 numCells) {
+    int width = numCells.x;
+    int height = numCells.y;
     return cell.x + cell.y * width + cell.z * width * height;
 }
 
-__global__ void hashParticles(float3 *position_d, int2 *particleHash_d, int size) {
+__global__ void hashParticles(float3 *position_d,
+                              int *particleHash_d,
+                              float3 min,
+                              int3 numCells,
+                              int size) {
     int id = blockDim.x * blockIdx.x + threadIdx.x;
-
     if (id >= size) {
         return;
     }
 
-    int3 cell = getCell(position_d[id]);
-    int cellId = cellNumber(cell, make_float3(6, 6, 6));
-    particleHash_d[id] = make_int2(cellId, id);
-    // position_d[id] = make_float3(cell.x, cell.y, cell.z);
+    float3 pos = position_d[id];
+
+    int3 cell = getCell(pos, min);
+    int cellId = cellNumber(cell, numCells);
+    particleHash_d[id] = cellId;
+}
+
+__global__ void resetCells(int2 *cellIndices_d, int numCells) {
+    int id = blockDim.x * blockIdx.x + threadIdx.x;
+    if (id >= numCells) {
+        return;
+    }
+
+    cellIndices_d[id] = make_int2(-1, -1);
+}
+
+__global__ void cellBounds(int *particleHash_d, int2 *cellIndices_d, int size) {
+    int id = blockDim.x * blockIdx.x + threadIdx.x;
+    if (id >= size) {
+        return;
+    }
+
+    // TODO use shared memory to look at adjacent positions
+    int hash = particleHash_d[id];
+    if (id != 0) {
+        int hashMinus = particleHash_d[id - 1];
+        if (hash != hashMinus) {
+            cellIndices_d[hash].x = id; // start of new cell
+            cellIndices_d[hashMinus].y = id - 1; // end of previous cell
+        }
+        if (id == size - 1) {
+            cellIndices_d[hash].y = id; // final particle in final cell
+        }
+    }
+    else {
+        cellIndices_d[hash].x = id; // first particle of first cell
+    }
 }
 
 void calcGrid(SimulationData *data) {
@@ -114,16 +165,29 @@ void calcGrid(SimulationData *data) {
     dim3 dimGrid = dim3((size + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
     float3 *pos_d = (float3 *)data->position_d;
-    int2 *hash_d = (int2 *)data->particleHash_d;
+    int *hash_d = data->particleHash_d;
+    float3 min = make_float3(data->minX, data->minY, data->minZ);
+    int3 numCells = make_int3(data->numCells[0],
+                              data->numCells[1],
+                              data->numCells[2]);
 
-    hashParticles<<<dimBlock, dimGrid>>>(pos_d, hash_d, size);
+    hashParticles<<<dimBlock, dimGrid>>>(pos_d, hash_d, min, numCells, size);
+
+    // find start and end index of each cell
+    int totalCells = numCells.x * numCells.y * numCells.z;
+    dim3 cellGrid((totalCells + BLOCK_SIZE - 1) / BLOCK_SIZE);
+
+    int2 *cell_d = (int2 *)data->cellIndices_d;
+    resetCells<<<dimBlock, cellGrid>>>(cell_d, totalCells);
+
+    cellBounds<<<dimBlock, dimGrid>>>(hash_d, cell_d, size);
 }
 
-// Sorting functions
+// Sorting
 struct comparePairs {
     __host__ __device__
-    bool operator()(const int2 &a, const int2 &b) {
-        return a.x < b.x;
+    bool operator()(const int &a, const int &b) {
+        return a < b;
     }
 };
 
@@ -133,7 +197,7 @@ void sortGrid(SimulationData *data) {
     // stored in the particleHash_d array
     thrust::device_ptr<float3> pos_ptr((float3 *)data->position_d);
     thrust::device_ptr<float3> vel_ptr((float3 *)data->velocity_d);
-    thrust::device_ptr<int2> hash_ptr((int2 *)data->particleHash_d);
+    thrust::device_ptr<int> hash_ptr(data->particleHash_d);
 
     thrust::sort_by_key(hash_ptr, hash_ptr + size,
         thrust::make_zip_iterator(thrust::make_tuple(pos_ptr, vel_ptr)),
@@ -141,12 +205,96 @@ void sortGrid(SimulationData *data) {
 }
 
 // Collision
-void collideParticles(SimulationData *data) {
+// collide a single particle with every particle in the given cell
+// returns a float3 giving its change in velocity
+__device__ float3 collideParticleCell(float3 pos,
+                                      float3 vel,
+                                      int particleId,
+                                      float3 *position_d,
+                                      float3 *velocity_d,
+                                      int2 indices) {
+    float3 deltaV = make_float3(0, 0, 0);
+    if (indices.x < 0) {
+        // no start, so cell is empty
+        return deltaV;
+    }
 
+    float3 otherPos;
+
+    for (int i = indices.x; i <= indices.y; i++) {
+        // don't want to collide particle with itself
+        if (i != particleId) {
+            otherPos = position_d[i];
+            float3 temp = otherPos - pos;
+            float dist = sqrtf(dot(temp, temp));
+            if (dist < RADIUS * 2) {
+                float3 dir = normalize(temp);
+                deltaV -= dir * VISCOSITY_GAIN;
+            }
+        }
+    }
+    return deltaV;
+}
+
+__global__ void collide(float3 *position_d,
+                        float3 *velocity_d,
+                        int2 *cellIndices_d,
+                        int3 numCells,
+                        float3 min,
+                        int totalCells,
+                        int size) {
+    int id = blockDim.x * blockIdx.x + threadIdx.x;
+    if (id >= size) {
+        return;
+    }
+
+    float3 pos = position_d[id];
+    float3 vel = velocity_d[id];
+    int3 cell = getCell(pos, min);
+
+    // TODO use shared memory to look at neighboring cells
+    for (int x = -1; x < 2; x++) {
+        for (int y = -1; y < 2; y++) {
+            for (int z = -1; z < 2; z++) {
+                int3 otherCell = cell + make_int3(x, y, z);
+                int otherCellId = cellNumber(otherCell, numCells);
+                if (otherCellId < totalCells && otherCellId >= 0) {
+                    int2 indices = cellIndices_d[otherCellId];
+                    vel += collideParticleCell(pos, vel, id,
+                                               position_d, velocity_d,
+                                               indices);
+                }
+            }
+        }
+    }
+
+    __syncthreads();
+    velocity_d[id] = vel;
+}
+
+void collideParticles(SimulationData *data) {
+    int size = data->activeParticles;
+    dim3 dimBlock = dim3(BLOCK_SIZE);
+    dim3 dimGrid = dim3((size + BLOCK_SIZE - 1) / BLOCK_SIZE);
+
+    float3 *pos_d = (float3 *)data->position_d;
+    float3 *vel_d = (float3 *)data->velocity_d;
+    int2 *cell_d = (int2 *)data->cellIndices_d;
+    int3 numCells = make_int3(data->numCells[0],
+                              data->numCells[1],
+                              data->numCells[2]);
+    float3 min = make_float3(data->minX, data->minY, data->minZ);
+    int totalCells = data->totalCells;
+
+    collide<<<dimBlock, dimGrid>>>(pos_d, vel_d, cell_d,
+                                   numCells, min, totalCells, size);
+    CUDA_CHECK_RETURN(cudaPeekAtLastError());
+    CUDA_CHECK_RETURN(cudaDeviceSynchronize());
 }
 
 // Interact with boundaries
-void __global__ boundaries(float3 *position_d, float3 *velocity_d, int size) {
+__global__ void boundaries(float3 *position_d, float3 *velocity_d,
+                           int3 min, int3 max, int size) {
     int id = blockDim.x * blockIdx.x + threadIdx.x;
     if (id >= size) {
         return;
@@ -155,28 +303,28 @@ void __global__ boundaries(float3 *position_d, float3 *velocity_d, int size) {
     float3 pos = position_d[id];
     float3 vel = velocity_d[id];
 
-    if (pos.x < -3) {
-        pos.x = -3;
+    if (pos.x < min.x) {
+        pos.x = min.x;
         vel.x *= -ELASTICITY;
     }
-    else if (pos.x > 3) {
-        pos.x = 3;
+    else if (pos.x > max.x) {
+        pos.x = max.x;
         vel.x *= -ELASTICITY;
     }
-    if (pos.y < 0) {
-        pos.y = 0;
+    if (pos.y < min.y) {
+        pos.y = min.y;
         vel.y *= -ELASTICITY;
     }
-    else if (pos.y > 6) {
-        pos.y = 6;
+    else if (pos.y > max.y) {
+        pos.y = max.y;
         vel.y *= -ELASTICITY;
     }
-    if (pos.z < -3) {
-        pos.z = -3;
+    if (pos.z < min.z) {
+        pos.z = min.z;
         vel.z *= -ELASTICITY;
     }
-    else if (pos.z > 3) {
-        pos.z = 3;
+    else if (pos.z > max.z) {
+        pos.z = max.z;
         vel.z *= -ELASTICITY;
     }
 
@@ -191,17 +339,26 @@ void interactBoundaries(SimulationData *data) {
 
     float3 *pos_d = (float3 *)data->position_d;
     float3 *vel_d = (float3 *)data->velocity_d;
+    int3 min = make_int3(data->minX, data->minY, data->minZ);
+    int3 max = make_int3(data->maxX, data->maxY, data->maxZ);
 
-    boundaries<<<dimBlock, dimGrid>>>(pos_d, vel_d, size);
+    boundaries<<<dimBlock, dimGrid>>>(pos_d, vel_d, min, max, size);
 }
 
 // Apply forces
-__global__ void integrate(float3 *position_d, float3 *velocity_d, int size, float dt) {
+__global__ void integrate(float3 *position_d,
+                          float3 *velocity_d,
+                          float3 gravity,
+                          int size,
+                          float dt) {
     int id = blockDim.x * blockIdx.x + threadIdx.x;
     if (id >= size) {
         return;
     }
-    position_d[id] += velocity_d[id] * dt;
+    float3 vel = velocity_d[id];
+    vel += gravity * dt;
+    velocity_d[id] = vel;
+    position_d[id] += vel * dt;
 }
 
 void applyForces(SimulationData *data, float dt) {
@@ -212,7 +369,11 @@ void applyForces(SimulationData *data, float dt) {
     float3 *pos_d = (float3 *)data->position_d;
     float3 *vel_d = (float3 *)data->velocity_d;
 
-    integrate<<<dimBlock, dimGrid>>>(pos_d, vel_d, size, dt);
+    float3 gravity = make_float3(data->gravity[0],
+                                 data->gravity[1],
+                                 data->gravity[2]);
+
+    integrate<<<dimBlock, dimGrid>>>(pos_d, vel_d, gravity, size, dt);
 }
 
 // Utility functions

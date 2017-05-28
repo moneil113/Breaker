@@ -4,10 +4,6 @@
 
 void initCuda(SimulationData *data);
 
-// void kernel(float *data, int size);
-
-void runKernel(float *position_d, int size);
-
 void copyParticles(SimulationData *data, float *newPosition_h, float *newVelocity_h, int newParticles);
 
 void calcGrid(SimulationData *data);
