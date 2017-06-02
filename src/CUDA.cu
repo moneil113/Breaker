@@ -244,7 +244,7 @@ __device__ float3 collideParticleCell(float3 pos,
                 deltaV += dir * VISCOSITY_GAIN * (RADIUS * 2 - dist);
                 // damping force
                 float3 dv = vel - otherVel;
-                deltaV -= dir * damping * dot(dv, dx);
+                deltaV -= dir * DAMPING * dot(dv, dx);
             }
         }
     }
