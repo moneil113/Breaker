@@ -7,9 +7,9 @@
 //  This file is designed to contain useful definitions that can
 //  be used in multiple files
 //
-
-#ifndef Util_h
-#define Util_h
+#pragma once
+#ifndef UTIL_H
+#define UTIL_H
 
 #define NUM_PARTICLES 10000
 

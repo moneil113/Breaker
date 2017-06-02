@@ -1,6 +1,6 @@
 #pragma once
-#ifndef _PARTICLE_SIM_H_
-#define _PARTICLE_SIM_H_
+#ifndef PARTICLE_SIM_H
+#define PARTICLE_SIM_H
 
 #include <vector>
 #include <memory>
@@ -8,12 +8,6 @@
 #include <GL/glew.h>
 
 #include "Program.h"
-
-// struct Vector3f {
-//     float x;
-//     float y;
-//     float z;
-// };
 
 struct SimulationData {
     // I'd like to have the bounding box update at each time step,
@@ -53,13 +47,19 @@ private:
     void unmapGLBuffer();
     void spawnParticles();
 
+    int spawnType;
+
 public:
     ParticleSim (int size);
     virtual ~ParticleSim ();
     void draw(std::shared_ptr<Program> prog);
     void init();
     void step(float dt);
+    void restart();
     void print();
+
+    void freeze();
+    void toggleGravity();
 };
 
 #endif

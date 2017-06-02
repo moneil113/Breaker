@@ -3,7 +3,7 @@
 // varying vec4 vCol;
 
 void main() {
-    vec4 vCol = vec4(1.0, 1.0, 1.0, 1.0);
+    vec4 vCol = vec4(0.5, 0.5, 0.8, 1.0);
     // adapted from NVIDIA sample to draw point sprites as spheres
     const vec3 lightDir = vec3(0.5, -0.1, 0.577);
     // calculate normal from texture coordinates

@@ -15,7 +15,8 @@
 #define RADIUS 0.1f
 #define CELL_SIZE (2 * RADIUS)
 #define ELASTICITY 0.5f
-#define VISCOSITY_GAIN 0.1f
+#define VISCOSITY_GAIN 0.5f
+#define DAMPING 0.1f
 
 static void CheckCudaErrorAux (const char *, unsigned, const char *, cudaError_t);
 #define CUDA_CHECK_RETURN(value) CheckCudaErrorAux(__FILE__,__LINE__, #value, value)
@@ -127,6 +128,29 @@ __global__ void hashParticles(float3 *position_d,
     particleHash_d[id] = cellId;
 }
 
+void calcGrid(SimulationData *data) {
+    int size = data->activeParticles;
+    dim3 dimBlock = dim3(BLOCK_SIZE);
+    dim3 dimGrid = dim3((size + BLOCK_SIZE - 1) / BLOCK_SIZE);
+
+    float3 *pos_d = (float3 *)data->position_d;
+    int *hash_d = data->particleHash_d;
+    float3 min = make_float3(data->minX, data->minY, data->minZ);
+    int3 numCells = make_int3(data->numCells[0],
+                              data->numCells[1],
+                              data->numCells[2]);
+
+    hashParticles<<<dimBlock, dimGrid>>>(pos_d, hash_d, min, numCells, size);
+}
+
+// Sorting
+struct comparePairs {
+    __host__ __device__
+    bool operator()(const int &a, const int &b) {
+        return a < b;
+    }
+};
+
 __global__ void resetCells(int2 *cellIndices_d, int numCells) {
     int id = blockDim.x * blockIdx.x + threadIdx.x;
     if (id >= numCells) {
@@ -159,38 +183,6 @@ __global__ void cellBounds(int *particleHash_d, int2 *cellIndices_d, int size) {
     }
 }
 
-void calcGrid(SimulationData *data) {
-    int size = data->activeParticles;
-    dim3 dimBlock = dim3(BLOCK_SIZE);
-    dim3 dimGrid = dim3((size + BLOCK_SIZE - 1) / BLOCK_SIZE);
-
-    float3 *pos_d = (float3 *)data->position_d;
-    int *hash_d = data->particleHash_d;
-    float3 min = make_float3(data->minX, data->minY, data->minZ);
-    int3 numCells = make_int3(data->numCells[0],
-                              data->numCells[1],
-                              data->numCells[2]);
-
-    hashParticles<<<dimBlock, dimGrid>>>(pos_d, hash_d, min, numCells, size);
-
-    // find start and end index of each cell
-    int totalCells = numCells.x * numCells.y * numCells.z;
-    dim3 cellGrid((totalCells + BLOCK_SIZE - 1) / BLOCK_SIZE);
-
-    int2 *cell_d = (int2 *)data->cellIndices_d;
-    resetCells<<<dimBlock, cellGrid>>>(cell_d, totalCells);
-
-    cellBounds<<<dimBlock, dimGrid>>>(hash_d, cell_d, size);
-}
-
-// Sorting
-struct comparePairs {
-    __host__ __device__
-    bool operator()(const int &a, const int &b) {
-        return a < b;
-    }
-};
-
 void sortGrid(SimulationData *data) {
     int size = data->activeParticles;
     // We want to sort both the position_d and velocity_d arrays using the keys
@@ -202,6 +194,22 @@ void sortGrid(SimulationData *data) {
     thrust::sort_by_key(hash_ptr, hash_ptr + size,
         thrust::make_zip_iterator(thrust::make_tuple(pos_ptr, vel_ptr)),
         comparePairs());
+
+    // find start and end index of each cell
+    int3 numCells = make_int3(data->numCells[0],
+                              data->numCells[1],
+                              data->numCells[2]);
+    int totalCells = numCells.x * numCells.y * numCells.z;
+    dim3 dimBlock = dim3(BLOCK_SIZE);
+    dim3 dimGrid = dim3((size + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    dim3 cellGrid((totalCells + BLOCK_SIZE - 1) / BLOCK_SIZE);
+
+    int *hash_d = data->particleHash_d;
+
+    int2 *cell_d = (int2 *)data->cellIndices_d;
+    resetCells<<<dimBlock, cellGrid>>>(cell_d, totalCells);
+
+    cellBounds<<<dimBlock, dimGrid>>>(hash_d, cell_d, size);
 }
 
 // Collision
@@ -219,17 +227,24 @@ __device__ float3 collideParticleCell(float3 pos,
         return deltaV;
     }
 
-    float3 otherPos;
+    float3 otherPos, otherVel;
 
     for (int i = indices.x; i <= indices.y; i++) {
         // don't want to collide particle with itself
         if (i != particleId) {
             otherPos = position_d[i];
-            float3 temp = otherPos - pos;
-            float dist = sqrtf(dot(temp, temp));
+            otherVel = velocity_d[i];
+            // dx points away from the other particle
+            float3 dx = pos - otherPos;
+            float dist = sqrtf(dot(dx, dx));
             if (dist < RADIUS * 2) {
-                float3 dir = normalize(temp);
-                deltaV -= dir * VISCOSITY_GAIN;
+                // direction from this particle to other particle
+                float3 dir = normalize(dx);
+                // spring  force (Hooke's law, F = kX)
+                deltaV += dir * VISCOSITY_GAIN * (RADIUS * 2 - dist);
+                // damping force
+                float3 dv = vel - otherVel;
+                deltaV -= dir * damping * dot(dv, dx);
             }
         }
     }
@@ -244,32 +259,35 @@ __global__ void collide(float3 *position_d,
                         int totalCells,
                         int size) {
     int id = blockDim.x * blockIdx.x + threadIdx.x;
-    if (id >= size) {
-        return;
-    }
+    float3 vel;
 
-    float3 pos = position_d[id];
-    float3 vel = velocity_d[id];
-    int3 cell = getCell(pos, min);
+    if (id < size) {
+        float3 pos = position_d[id];
+        vel = velocity_d[id];
+        int3 cell = getCell(pos, min);
 
-    // TODO use shared memory to look at neighboring cells
-    for (int x = -1; x < 2; x++) {
-        for (int y = -1; y < 2; y++) {
-            for (int z = -1; z < 2; z++) {
-                int3 otherCell = cell + make_int3(x, y, z);
-                int otherCellId = cellNumber(otherCell, numCells);
-                if (otherCellId < totalCells && otherCellId >= 0) {
-                    int2 indices = cellIndices_d[otherCellId];
-                    vel += collideParticleCell(pos, vel, id,
-                                               position_d, velocity_d,
-                                               indices);
+        // TODO use shared memory to look at neighboring cells
+        for (int x = -1; x <= 1; x++) {
+            for (int y = -1; y <= 1; y++) {
+                for (int z = -1; z <= 1; z++) {
+                    int3 otherCell = cell + make_int3(x, y, z);
+                    int otherCellId = cellNumber(otherCell, numCells);
+                    if (otherCellId < totalCells && otherCellId >= 0) {
+                        int2 indices = cellIndices_d[otherCellId];
+                        vel += collideParticleCell(pos, vel, id,
+                                                   position_d, velocity_d,
+                                                   indices);
+                    }
                 }
             }
         }
     }
 
     __syncthreads();
-    velocity_d[id] = vel;
+
+    if (id < size) {
+        velocity_d[id] = vel;
+    }
 }
 
 void collideParticles(SimulationData *data) {
@@ -300,31 +318,34 @@ __global__ void boundaries(float3 *position_d, float3 *velocity_d,
         return;
     }
 
+    float jitter[10] = {0.00413, 0.00093, 0.00554, 0.00092, 0.00103,
+        0.00425, 0.00980, 0.00744, 0.00959, 0.00299};
+
     float3 pos = position_d[id];
     float3 vel = velocity_d[id];
 
     if (pos.x < min.x) {
-        pos.x = min.x;
+        pos.x = min.x + jitter[(id % 13 + id % 7) % 10];
         vel.x *= -ELASTICITY;
     }
-    else if (pos.x > max.x) {
-        pos.x = max.x;
+    if (pos.x > max.x) {
+        pos.x = max.x - jitter[(id % 13 + id % 7) % 10];
         vel.x *= -ELASTICITY;
     }
     if (pos.y < min.y) {
-        pos.y = min.y;
+        pos.y = min.y + jitter[(id % 3 + id % 19) % 10];
         vel.y *= -ELASTICITY;
     }
-    else if (pos.y > max.y) {
-        pos.y = max.y;
+    if (pos.y > max.y) {
+        pos.y = max.y - jitter[(id % 3 + id % 19) % 10];
         vel.y *= -ELASTICITY;
     }
     if (pos.z < min.z) {
-        pos.z = min.z;
+        pos.z = min.z + jitter[(id % 5 + id % 23) % 10];
         vel.z *= -ELASTICITY;
     }
-    else if (pos.z > max.z) {
-        pos.z = max.z;
+    if (pos.z > max.z) {
+        pos.z = max.z - jitter[(id % 5 + id % 23) % 10];
         vel.z *= -ELASTICITY;
     }
 
@@ -374,6 +395,16 @@ void applyForces(SimulationData *data, float dt) {
                                  data->gravity[2]);
 
     integrate<<<dimBlock, dimGrid>>>(pos_d, vel_d, gravity, size, dt);
+}
+
+void freezeParticles(SimulationData *data) {
+    int size = data->activeParticles;
+    dim3 dimBlock = dim3(BLOCK_SIZE);
+    dim3 dimGrid = dim3((size + BLOCK_SIZE - 1) / BLOCK_SIZE);
+
+    float3 *vel_d = (float3 *)data->velocity_d;
+
+    zeroArray<<<dimBlock, dimGrid>>>(vel_d, size);
 }
 
 // Utility functions

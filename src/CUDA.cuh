@@ -18,4 +18,6 @@ void applyForces(SimulationData *data, float dt);
 
 void copyDeviceToHost(void *data, void *data_d, int size);
 
+void freezeParticles(SimulationData *data);
+
 #endif

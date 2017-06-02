@@ -14,28 +14,21 @@ static void CheckCudaErrorAux (const char *, unsigned, const char *, cudaError_t
 #define CUDA_CHECK_RETURN(value) CheckCudaErrorAux(__FILE__,__LINE__, #value, value)
 
 ParticleSim::ParticleSim(int size) :
-    size(size)
+    size(size),
+    spawnType(0)
 {
-    // data = new float[3 * size];
 }
 
 ParticleSim::~ParticleSim() {
 }
 
 void ParticleSim::init() {
-    // data = {};
     createVBO(cudaGraphicsMapFlagsWriteDiscard);
     data.position_d = mapGLBuffer();
     data.activeParticles = 0;
     data.n = size;
-    // data.minX = -3;
-    // data.maxX = -3;
-    // data.minY = 0;
-    // data.maxY = 6;
-    // data.minZ = -3;
-    // data.maxZ = -3;
     data.gravity[0] = 0;
-    data.gravity[1] = -9.8;
+    data.gravity[1] = -4.9;
     data.gravity[2] = 0;
 
     initCuda(&data);
@@ -52,33 +45,78 @@ float randomFloat(float l, float h) {
 }
 
 void ParticleSim::spawnParticles() {
-    float newPos[10 * 3];
-    float newVel[10 * 3];
-    for (size_t i = 0; i < 10; i++) {
-        newPos[3 * i] = randomFloat(-0.2, 0.2);
-        newPos[3 * i + 1] = randomFloat(2.8, 3.2);
-        newPos[3 * i + 2] = randomFloat(-0.2, 0.2);
+    if (spawnType != 3) {
+        float newPos[10 * 3];
+        float newVel[10 * 3];
+        for (size_t i = 0; i < 10; i++) {
+            float t = randomFloat(0.0f, 1.0f);
+            float z = randomFloat(-0.5f, 0.5f);
 
-        newVel[3 * i] = randomFloat(-1, 1);
-        newVel[3 * i + 1] = randomFloat(-1, 1);
-        newVel[3 * i + 2] = randomFloat(-1, 1);
+            if (spawnType == 0){
+                newPos[3 * i] = 2.0f + t;
+                newPos[3 * i + 1] = 0.0f + t;
+                newPos[3 * i + 2] = z;
+
+                newVel[3 * i] = -1.0f;
+                newVel[3 * i + 1] = 1.0f;
+                newVel[3 * i + 2] = 0.0f;
+            }
+            else if (spawnType == 1) {
+                newPos[3 * i] = 3.0f;
+                newPos[3 * i + 1] = 0.0f + t;
+                newPos[3 * i + 2] = z;
+                newVel[3 * i] = -10.0f;
+                newVel[3 * i + 1] = 0.0f;
+                newVel[3 * i + 2] = 0.0f;
+            }
+            else {
+                newPos[3 * i] = randomFloat(-0.5f, 0.5f);
+                newPos[3 * i + 1] = randomFloat(2.5f, 3.5f);
+                newPos[3 * i + 2] = randomFloat(-0.5f, 0.5f);
+                newVel[3 * i] = randomFloat(-0.5f, 0.5f);
+                newVel[3 * i + 1] = randomFloat(-0.5f, 0.5f);
+                newVel[3 * i + 2] = randomFloat(-0.5f, 0.5f);
+            }
+        }
+        copyParticles(&data, newPos, newVel, 10);
     }
-    // copyParticles(&data, newPos, newVel, 10);
-    // newPos[0] = -0.2;
+    else {
+        float *newPos = new float[3 * data.n];
+        float *newVel = new float[3 * data.n];
+
+        for (size_t i = 0; i < data.n; i++) {
+            float x = randomFloat(data.minX, data.maxX);
+            float y = randomFloat(data.minY, data.maxY);
+            float z = randomFloat(data.minZ, data.maxZ);
+
+            newPos[3 * i] = x;
+            newPos[3 * i + 1] = y;
+            newPos[3 * i + 2] = z;
+
+            newVel[3 * i] = 0;
+            newVel[3 * i + 1] = 0;
+            newVel[3 * i + 2] = 0;
+        }
+
+        copyParticles(&data, newPos, newVel, data.n);
+        delete[] newPos;
+        delete[] newVel;
+    }
+
+    // newPos[0] = -0.01;
     // newPos[1] = 3;
     // newPos[2] = 0;
-    // newVel[0] = 1;
+    // newVel[0] = 0;
     // newVel[1] = 0;
     // newVel[2] = 0;
     //
-    // newPos[3] = 0.2;
+    // newPos[3] = 0.01;
     // newPos[4] = 3;
     // newPos[5] = 0;
-    // newVel[3] = -1;
+    // newVel[3] = 0;
     // newVel[4] = 0;
     // newVel[5] = 0;
 
-    copyParticles(&data, newPos, newVel, 10);
 }
 
 void ParticleSim::createVBO(unsigned int vbo_res_flags) {
@@ -101,19 +139,23 @@ void ParticleSim::step(float dt) {
         spawnParticles();
     }
 
-    // cout << "-----\n";
-
     calcGrid(&data);
 
     sortGrid(&data);
 
     collideParticles(&data);
-
-    interactBoundaries(&data);
+    // print();
 
     applyForces(&data, dt);
 
+    interactBoundaries(&data);
+
     unmapGLBuffer();
+}
+
+void ParticleSim::restart() {
+    data.activeParticles = 0;
+    spawnType = (spawnType + 1) % 4;
 }
 
 void ParticleSim::print() {
@@ -175,4 +217,17 @@ static void CheckCudaErrorAux (const char *file, unsigned line, const char *stat
 		return;
 	std::cerr << statement<<" returned " << cudaGetErrorString(err) << "("<<err<< ") at "<<file<<":"<<line << std::endl;
     exit(1);
+}
+
+void ParticleSim::freeze() {
+    freezeParticles(&data);
+}
+
+void ParticleSim::toggleGravity() {
+    if (data.gravity[1] != 0) {
+        data.gravity[1] = 0;
+    }
+    else {
+        data.gravity[1] = -9.8;
+    }
 }

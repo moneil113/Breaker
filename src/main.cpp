@@ -52,28 +52,31 @@ const GLfloat lineArray[] = {
     -3.05f, -0.05f, -3.05f,
 
     -3.05f, -0.05f, -3.05f,
-    -3.05f, 20.0f, -3.05f,
+    -3.05f, 6.05, -3.05f,
 
     3.05f, -0.05f, -3.05f,
-    3.05f, 20.0f, -3.05f,
+    3.05f, 6.05f, -3.05f,
 
     3.05f, -0.05f, 3.05f,
-    3.05f, 20.0f, 3.05f,
+    3.05f, 6.05f, 3.05f,
 
     -3.05f, -0.05f, 3.05f,
-    -3.05f, 20.0f, 3.05f
+    -3.05f, 6.05f, 3.05f,
+
+    -3.05f, 6.05f, -3.05f,
+    3.05f, 6.05f, -3.05f,
+
+    3.05f, 6.05f, -3.05f,
+    3.05f, 6.05f, 3.05f,
+
+    3.05f, 6.05f, 3.05f,
+    -3.05f, 6.05f, 3.05f,
+
+    -3.05f, 6.05f, 3.05f,
+    -3.05f, 6.05f, -3.05f,
+
 };
 GLuint lineBufID;
-
-/*void rotateGravity(float delta) {
-    Matrix3f rot;
-    float deg = delta * 3.14159 / 180.0;
-    rot << cos(deg), -sin(deg), 0,
-            sin(deg), cos(deg), 0,
-            0, 0, 1.0;
-    grav = rot * grav;
-    rotation += delta;
-}*/
 
 // This function is called when a GLFW error occurs
 static void error_callback(int error, const char *description) {
@@ -113,6 +116,15 @@ static void cursor_position_callback(GLFWwindow* window, double xmouse, double y
 
 static void char_callback(GLFWwindow *window, unsigned int key) {
 	keyToggles[key] = !keyToggles[key];
+    if (key == 'r') {
+        sim->restart();
+    }
+    if (key == 'f') {
+        sim->freeze();
+    }
+    if (key == 'g') {
+        sim->toggleGravity();
+    }
 }
 
 // If the window is resized, capture the new size and reset the viewport
@@ -149,10 +161,6 @@ static void init() {
 
     sim = make_shared<ParticleSim>(NUM_PARTICLES);
     sim->init();
-	// grav << 0.0f, -9.8f, 0.0f;
-	// t = 0.0f;
-	// dt = 0.01f;
-    // rotation = 0;
 
     flatProg = make_shared<Program>();
     flatProg->setShaderNames(RESOURCE_DIR + "flatVert.glsl", RESOURCE_DIR + "flatFrag.glsl");
@@ -213,10 +221,10 @@ static void render() {
     glUniformMatrix4fv(flatProg->getUniform("MV"), 1, GL_FALSE, MV->topMatrix().data());
     glEnableVertexAttribArray(flatProg->getAttribute("aPos"));
     glBindBuffer(GL_ARRAY_BUFFER, lineBufID);
-    glBufferData(GL_ARRAY_BUFFER, 48 * sizeof(GLfloat), lineArray, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, 72 * sizeof(GLfloat), lineArray, GL_STATIC_DRAW);
     glVertexAttribPointer(flatProg->getAttribute("aPos"), 3, GL_FLOAT, GL_FALSE, 0, 0);
 
-    glDrawArrays(GL_LINES, 0, 48);
+    glDrawArrays(GL_LINES, 0, 72);
 
     glDisableVertexAttribArray(flatProg->getAttribute("aPos"));
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -249,7 +257,9 @@ static void render() {
 void stepParticles(float dt) {
 	if(keyToggles[(unsigned)' ']) {
         sim->step(dt);
-        // keyToggles[(unsigned)' '] = false;
+        if (keyToggles[(unsigned)'s']) {
+            keyToggles[(unsigned)' '] = false;
+        }
 	}
 }
 
@@ -306,7 +316,10 @@ int main(int argc, char **argv) {
     double oldTime = glfwGetTime();
     double newTime;
     double fpsTime = oldTime;
-    int numFrames = 0;
+    int numFrames = 0;//, totalFrames = 0;
+    // struct timespec begin, end, totalBegin, totalEnd;
+    // double elapsed = 0, totalTime = 0;
+
 	// Loop until the user closes the window.
 	while(!glfwWindowShouldClose(window)) {
         newTime = glfwGetTime();
@@ -321,8 +334,14 @@ int main(int argc, char **argv) {
         }
         oldTime = newTime;
         numFrames++;
+        // totalFrames++;
+        // clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &totalBegin);
 		// Step particles.
+        // clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &begin);
 		stepParticles(dt);
+        // clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end);
+        // elapsed += end.tv_sec - begin.tv_sec;
+        // elapsed += (end.tv_nsec - begin.tv_nsec) / 1000000000.0;
 		// Render scene.
 		render();
 #ifdef BAKE
@@ -335,9 +354,13 @@ int main(int argc, char **argv) {
 		glfwSwapBuffers(window);
 		// Poll for and process events.
 		glfwPollEvents();
+        // clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &totalEnd);
+        // totalTime += totalEnd.tv_sec - totalBegin.tv_sec;
+        // totalTime += (totalEnd.tv_nsec - totalBegin.tv_nsec) / 1000000000.0;
 	}
 	// Quit program.
 	glfwDestroyWindow(window);
 	glfwTerminate();
+    // cout << elapsed / totalFrames << " average time (" << (elapsed / totalTime) * 100 << "%)\n";
 	return 0;
 }
