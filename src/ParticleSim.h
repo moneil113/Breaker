@@ -20,6 +20,7 @@ struct SimulationData {
     int totalCells; // total numbers of cells in flattened array
     float *position_d;
     float *velocity_d;
+    float *nextVelocity_d;
     // particleHash_d gives the cell that a particle is in
     int *particleHash_d;
     // cellIndices_d is an int2 array of the form (start index, end index)

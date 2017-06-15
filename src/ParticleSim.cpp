@@ -32,9 +32,6 @@ void ParticleSim::init() {
     data.gravity[2] = 0;
 
     initCuda(&data);
-    cout << "(" << data.minX << ", " << data.minY << ", " << data.minZ << ") to ";
-    cout << "(" << data.maxX << ", " << data.maxY << ", " << data.maxZ << ")\n";
-    cout << data.totalCells << endl;
 
     unmapGLBuffer();
 }
@@ -45,7 +42,7 @@ float randomFloat(float l, float h) {
 }
 
 void ParticleSim::spawnParticles() {
-    if (spawnType != 3) {
+    if (spawnType != 4) {
         float newPos[10 * 3];
         float newVel[10 * 3];
         for (size_t i = 0; i < 10; i++) {
@@ -68,6 +65,14 @@ void ParticleSim::spawnParticles() {
                 newVel[3 * i] = -10.0f;
                 newVel[3 * i + 1] = 0.0f;
                 newVel[3 * i + 2] = 0.0f;
+            }
+            else if (spawnType == 3) {
+                newPos[3 * i] = randomFloat(-0.5f, 0.5f);
+                newPos[3 * i + 1] = 0;
+                newPos[3 * i + 2] = randomFloat(-0.5f, 0.5f);
+                newVel[3 * i] = randomFloat(-0.01f, 0.01f);
+                newVel[3 * i + 1] = 4.5;
+                newVel[3 * i + 2] = randomFloat(-0.01f, 0.01f);
             }
             else {
                 newPos[3 * i] = randomFloat(-0.5f, 0.5f);
@@ -102,21 +107,6 @@ void ParticleSim::spawnParticles() {
         delete[] newPos;
         delete[] newVel;
     }
-
-    // newPos[0] = -0.01;
-    // newPos[1] = 3;
-    // newPos[2] = 0;
-    // newVel[0] = 0;
-    // newVel[1] = 0;
-    // newVel[2] = 0;
-    //
-    // newPos[3] = 0.01;
-    // newPos[4] = 3;
-    // newPos[5] = 0;
-    // newVel[3] = 0;
-    // newVel[4] = 0;
-    // newVel[5] = 0;
-
 }
 
 void ParticleSim::createVBO(unsigned int vbo_res_flags) {
@@ -134,7 +124,6 @@ void ParticleSim::createVBO(unsigned int vbo_res_flags) {
 void ParticleSim::step(float dt) {
     data.position_d = mapGLBuffer();
 
-    // TODO create sinks and sources for particles
     if (data.activeParticles < data.n) {
         spawnParticles();
     }
@@ -144,7 +133,6 @@ void ParticleSim::step(float dt) {
     sortGrid(&data);
 
     collideParticles(&data);
-    // print();
 
     applyForces(&data, dt);
 
@@ -155,7 +143,7 @@ void ParticleSim::step(float dt) {
 
 void ParticleSim::restart() {
     data.activeParticles = 0;
-    spawnType = (spawnType + 1) % 4;
+    spawnType = (spawnType + 1) % 5;
 }
 
 void ParticleSim::print() {

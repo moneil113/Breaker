@@ -43,13 +43,15 @@ void initCuda(SimulationData *data) {
     dim3 dimBlock = dim3(BLOCK_SIZE);
     dim3 dimGrid = dim3((size + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
-    float *vel_d;
+    float *vel_d, *nextVel_d;
     int *hash_d;
 
     zeroArray<<<dimBlock, dimGrid>>>((float3 *)(data->position_d), size);
 
     CUDA_CHECK_RETURN(cudaMalloc((void **)&vel_d, sizeof(float3) * size));
     zeroArray<<<dimBlock, dimGrid>>>((float3 *)vel_d, size);
+
+    CUDA_CHECK_RETURN(cudaMalloc((void **)&nextVel_d, sizeof(float3) * size));
 
     CUDA_CHECK_RETURN(cudaMalloc((void **)&hash_d, sizeof(int) * size));
 
@@ -61,6 +63,7 @@ void initCuda(SimulationData *data) {
                                  sizeof(int2) * cells.x * cells.y * cells.z));
 
     data->velocity_d = vel_d;
+    data->nextVelocity_d = nextVel_d;
     data->particleHash_d = hash_d;
     data->cellIndices_d = indices_d;
 
@@ -253,6 +256,7 @@ __device__ float3 collideParticleCell(float3 pos,
 
 __global__ void collide(float3 *position_d,
                         float3 *velocity_d,
+                        float3 *nextVelocity_d,
                         int2 *cellIndices_d,
                         int3 numCells,
                         float3 min,
@@ -286,7 +290,7 @@ __global__ void collide(float3 *position_d,
     __syncthreads();
 
     if (id < size) {
-        velocity_d[id] = vel;
+        nextVelocity_d[id] = vel;
     }
 }
 
@@ -297,6 +301,7 @@ void collideParticles(SimulationData *data) {
 
     float3 *pos_d = (float3 *)data->position_d;
     float3 *vel_d = (float3 *)data->velocity_d;
+    float3 *nextVel_d = (float3 *)data->nextVelocity_d;
     int2 *cell_d = (int2 *)data->cellIndices_d;
     int3 numCells = make_int3(data->numCells[0],
                               data->numCells[1],
@@ -304,10 +309,13 @@ void collideParticles(SimulationData *data) {
     float3 min = make_float3(data->minX, data->minY, data->minZ);
     int totalCells = data->totalCells;
 
-    collide<<<dimBlock, dimGrid>>>(pos_d, vel_d, cell_d,
+    collide<<<dimBlock, dimGrid>>>(pos_d, vel_d, nextVel_d, cell_d,
                                    numCells, min, totalCells, size);
     CUDA_CHECK_RETURN(cudaPeekAtLastError());
     CUDA_CHECK_RETURN(cudaDeviceSynchronize());
+
+    // Set current velocity to be next velocity
+    data->velocity_d = data->nextVelocity_d;
 }
 
 // Interact with boundaries

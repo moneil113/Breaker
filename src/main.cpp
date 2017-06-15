@@ -19,6 +19,8 @@
 #include "ParticleSim.h"
 #include "Program.h"
 
+#include "CUDA_check.h"
+
 #include "Util.h"
 
 using namespace std;
@@ -31,9 +33,6 @@ shared_ptr<Camera> camera;
 shared_ptr<Program> prog;
 shared_ptr<Program> flatProg;
 shared_ptr<ParticleSim> sim;
-// Vector3f grav;
-// float t, dt;
-// float rotation; // rotation in degrees
 
 bool keyToggles[256] = {false}; // only for English keyboards!
 
@@ -151,7 +150,6 @@ static void init() {
 	prog->setVerbose(true);
 	prog->init();
 	prog->addAttribute("aPos");
-	// prog->addAttribute("aCol");
 	prog->addUniform("P");
 	prog->addUniform("MV");
 	prog->addUniform("screenSize");
@@ -174,14 +172,6 @@ static void init() {
     keyToggles[(unsigned) '1'] = true;
 
 	GLSL::checkError(GET_FILE_LINE);
-
-#ifdef BAKE
-    // Initalize a temp directory for baked data if it doesn't exist
-    struct stat st;
-    if (stat("/tmp/breaker", &st) != 0) {
-        mkdir("/tmp/breaker/", 0777);
-    }
-#endif
 }
 
 // This function is called every frame to draw the scene.
@@ -263,10 +253,6 @@ void stepParticles(float dt) {
 	}
 }
 
-void bakeFrame() {
-    // sim->bakeFrame();
-}
-
 int main(int argc, char **argv) {
 	if(argc < 2) {
 		cout << "Please specify the resource directory." << endl;
@@ -310,21 +296,30 @@ int main(int argc, char **argv) {
 	glfwSetMouseButtonCallback(window, mouse_button_callback);
 	// Set the window resize call back.
 	glfwSetFramebufferSizeCallback(window, resize_callback);
+
+    // Check CUDA capability
+    if (!checkCudaDevice()) {
+        return -1;
+    }
+
 	// Initialize scene.
 	init();
     // Initialize frame rate counter
     double oldTime = glfwGetTime();
     double newTime;
     double fpsTime = oldTime;
-    int numFrames = 0;//, totalFrames = 0;
-    // struct timespec begin, end, totalBegin, totalEnd;
-    // double elapsed = 0, totalTime = 0;
+    int numFrames = 0;
+#ifdef TIMING
+    int totalFrames = 0;
+    struct timespec begin, end, totalBegin, totalEnd;
+    double elapsed = 0, totalTime = 0;
+#endif
 
 	// Loop until the user closes the window.
 	while(!glfwWindowShouldClose(window)) {
         newTime = glfwGetTime();
         float dt = newTime - oldTime;
-        // cout << "fps: " << 1 / (newTime - oldTime) << endl;
+
         if (newTime - fpsTime > 0.5) {
             char fps[40];
             sprintf(fps, "Breaker Fluid Simulation (%.2f ms/frame)", 500.0/numFrames);
@@ -334,14 +329,18 @@ int main(int argc, char **argv) {
         }
         oldTime = newTime;
         numFrames++;
-        // totalFrames++;
-        // clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &totalBegin);
-		// Step particles.
-        // clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &begin);
+#ifdef TIMING
+        totalFrames++;
+        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &totalBegin);
+		Step particles.
+        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &begin);
+#endif
 		stepParticles(dt);
-        // clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end);
-        // elapsed += end.tv_sec - begin.tv_sec;
-        // elapsed += (end.tv_nsec - begin.tv_nsec) / 1000000000.0;
+#ifdef TIMING
+        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end);
+        elapsed += end.tv_sec - begin.tv_sec;
+        elapsed += (end.tv_nsec - begin.tv_nsec) / 1000000000.0;
+#endif
 		// Render scene.
 		render();
 #ifdef BAKE
@@ -354,13 +353,17 @@ int main(int argc, char **argv) {
 		glfwSwapBuffers(window);
 		// Poll for and process events.
 		glfwPollEvents();
-        // clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &totalEnd);
-        // totalTime += totalEnd.tv_sec - totalBegin.tv_sec;
-        // totalTime += (totalEnd.tv_nsec - totalBegin.tv_nsec) / 1000000000.0;
+#ifdef TIMING
+        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &totalEnd);
+        totalTime += totalEnd.tv_sec - totalBegin.tv_sec;
+        totalTime += (totalEnd.tv_nsec - totalBegin.tv_nsec) / 1000000000.0;
+#endif
 	}
 	// Quit program.
 	glfwDestroyWindow(window);
 	glfwTerminate();
-    // cout << elapsed / totalFrames << " average time (" << (elapsed / totalTime) * 100 << "%)\n";
+#ifdef TIMING
+    cout << elapsed / totalFrames << " average time (" << (elapsed / totalTime) * 100 << "%)\n";
+#endif
 	return 0;
 }

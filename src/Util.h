@@ -11,10 +11,10 @@
 #ifndef UTIL_H
 #define UTIL_H
 
-#define NUM_PARTICLES 10000
+#define NUM_PARTICLES 20000
 
 //#define DEBUG
 
-//#define BAKE
+//#define TIMING
 
 #endif /* Util_h */
