@@ -11,7 +11,7 @@
 #ifndef UTIL_H
 #define UTIL_H
 
-#define NUM_PARTICLES 20000
+#define NUM_PARTICLES 10000
 
 //#define DEBUG
 

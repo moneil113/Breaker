@@ -11,7 +11,7 @@ Dependencies
 * [GLEW](http://glew.sourceforge.net/)
 * [Eigen](http://eigen.tuxfamily.org/index.php?title=Main_Page)
 
-To build and run the GPU implementation, your computer must have a CUDA capable
+To build and run the GPU branch, your computer must have a CUDA capable
 NVIDA GPU.
 
 ## Build instructions

@@ -315,7 +315,9 @@ void collideParticles(SimulationData *data) {
     CUDA_CHECK_RETURN(cudaDeviceSynchronize());
 
     // Set current velocity to be next velocity
+    float *temp = data->velocity_d;
     data->velocity_d = data->nextVelocity_d;
+    data->nextVelocity_d = temp;
 }
 
 // Interact with boundaries
